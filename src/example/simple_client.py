@@ -1,10 +1,12 @@
+import aioconsole
 from aiortc import RTCIceCandidate, RTCPeerConnection, RTCSessionDescription
 import argparse
 import asyncio
+from google.protobuf.wrappers_pb2 import FloatValue
 from grpc_webrtc_bridge.grpc_client import GRPCClient
 from gst_signalling.aiortc_adapter import BYE, GstSignalingForAiortc
 import logging
-from reachy_sdk_api import joint_pb2
+from reachy_sdk_api import any_joint_command_pb2, joint_pb2
 import sys
 
 
@@ -22,6 +24,28 @@ async def main(args: argparse.Namespace) -> int:
 
     pc = RTCPeerConnection()
 
+    joint_command_datachannel = pc.createDataChannel("joint_command")
+
+    @joint_command_datachannel.on("open")
+    def on_joint_command_datachannel_open():
+        async def send_joint_command():
+            while True:
+                pos = await aioconsole.ainput("Enter a position: ")
+                if pos == "q":
+                    break
+                joint_command = joint_pb2.JointCommand(
+                    id=joint_pb2.JointId(name="r_elbow_pitch"),
+                    goal_position=FloatValue(value=float(pos)),
+                )
+                cmd = any_joint_command_pb2.AnyJointsCommand(
+                    joints=joint_pb2.JointsCommand(
+                        commands=[joint_command],
+                    ),
+                )
+                joint_command_datachannel.send(cmd.SerializeToString())
+
+        asyncio.ensure_future(send_joint_command())
+
     @pc.on("datachannel")
     def on_datachannel(channel):
         logger.info(f"New data channel: {channel.label}")
@@ -32,7 +56,7 @@ async def main(args: argparse.Namespace) -> int:
             def on_message(message):
                 joint_state = joint_pb2.JointsState()
                 joint_state.ParseFromString(message)
-                print(joint_state)
+                logger.debug(f"Received message: {joint_state}")
 
     while True:
         obj = await signaling.receive()

@@ -31,6 +31,17 @@ async def main(args: argparse.Namespace) -> int:
 
         asyncio.ensure_future(send_joint_state())
 
+    @pc.on("datachannel")
+    def on_datachannel(channel):
+        logging.info(f"New data channel: {channel.label}")
+
+        if channel.label == "joint_command":
+
+            @channel.on("message")
+            async def on_message(message):
+                logging.info(f"Received message: {message}")
+                await grpc_client.send_command(message)
+
     await pc.setLocalDescription(await pc.createOffer())
     await signaling.send(pc.localDescription)
 
