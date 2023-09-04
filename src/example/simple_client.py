@@ -1,45 +1,44 @@
 from aiortc import RTCIceCandidate, RTCPeerConnection, RTCSessionDescription
 import argparse
 import asyncio
+from grpc_webrtc_bridge.grpc_client import GRPCClient
 from gst_signalling.aiortc_adapter import BYE, GstSignalingForAiortc
-import sys
 import logging
-
-
-from .grpc_client import GRPCClient
+from reachy_sdk_api import joint_pb2
+import sys
 
 
 async def main(args: argparse.Namespace) -> int:
-    grpc_client = GRPCClient(args.grpc_host, args.grpc_port)
+    logger = logging.getLogger(__name__)
 
     signaling = GstSignalingForAiortc(
         signaling_host=args.webrtc_signaling_host,
         signaling_port=args.webrtc_signaling_port,
-        role="producer",
+        role="consumer",
         name="grpc_webrtc_bridge",
+        remote_producer_peer_id=args.webrtc_producer_peer_id,
     )
     await signaling.connect()
 
     pc = RTCPeerConnection()
-    joint_state_datachannel = pc.createDataChannel("joint_state")
 
-    @joint_state_datachannel.on("open")
-    def on_joint_state_datachannel_open():
-        async def send_joint_state():
-            async for state in grpc_client.get_state():
-                joint_state_datachannel.send(state.SerializeToString())
+    @pc.on("datachannel")
+    def on_datachannel(channel):
+        logger.info(f"New data channel: {channel.label}")
 
-        asyncio.ensure_future(send_joint_state())
+        if channel.label == "joint_state":
 
-    await pc.setLocalDescription(await pc.createOffer())
-    await signaling.send(pc.localDescription)
+            @channel.on("message")
+            def on_message(message):
+                joint_state = joint_pb2.JointsState()
+                joint_state.ParseFromString(message)
+                print(joint_state)
 
     while True:
         obj = await signaling.receive()
         if isinstance(obj, RTCSessionDescription):
             await pc.setRemoteDescription(obj)
 
-            # Negotiation needed
             if obj.type == "offer":
                 await pc.setLocalDescription(await pc.createAnswer())
                 await signaling.send(pc.localDescription)
@@ -56,20 +55,6 @@ async def main(args: argparse.Namespace) -> int:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
-    # gRPC
-    parser.add_argument(
-        "--grpc-host",
-        type=str,
-        default="127.0.0.1",
-        help="Host of the grpc server.",
-    )
-    parser.add_argument(
-        "--grpc-port",
-        type=int,
-        default=50055,
-        help="Port of the grpc server.",
-    )
-
     # WebRTC
     parser.add_argument(
         "--webrtc-signaling-host",
@@ -82,6 +67,12 @@ if __name__ == "__main__":
         type=int,
         default=8443,
         help="Port of the gstreamer webrtc signaling server.",
+    )
+    parser.add_argument(
+        "--webrtc-producer-peer-id",
+        type=str,
+        required=True,
+        help="Peer id of the producer.",
     )
 
     # Logging
