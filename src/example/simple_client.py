@@ -39,11 +39,11 @@ async def main(args: argparse.Namespace) -> int:  # noqa: C901
                 if pos == "q":
                     break
 
-                pos = np.deg2rad(pos)
+                pos = np.deg2rad(float(pos))
 
                 joint_command = joint_pb2.JointCommand(
                     id=joint_pb2.JointId(name="r_elbow_pitch"),
-                    goal_position=FloatValue(value=float(pos)),
+                    goal_position=FloatValue(value=pos),
                 )
                 cmd = any_joint_command_pb2.AnyJointsCommand(
                     joints=joint_pb2.JointsCommand(
