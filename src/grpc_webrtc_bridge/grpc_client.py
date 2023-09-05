@@ -45,7 +45,7 @@ class GRPCClient:
         async for state in self.joint_stub.StreamJointsState(stream_req):
             yield state
 
-    async def send_command(self, message: bytes):
+    async def send_command(self, message: bytes) -> None:
         cmd = any_joint_command_pb2.AnyJointsCommand()
         cmd.ParseFromString(message)
 

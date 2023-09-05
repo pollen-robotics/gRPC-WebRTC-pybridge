@@ -1,4 +1,9 @@
-from aiortc import RTCIceCandidate, RTCPeerConnection, RTCSessionDescription
+from aiortc import (
+    RTCIceCandidate,
+    RTCDataChannel,
+    RTCPeerConnection,
+    RTCSessionDescription,
+)
 import argparse
 import asyncio
 from gst_signalling.aiortc_adapter import BYE, GstSignalingForAiortc
@@ -9,7 +14,7 @@ import logging
 from .grpc_client import GRPCClient
 
 
-async def main(args: argparse.Namespace) -> int:
+async def main(args: argparse.Namespace) -> int:  # noqa: C901
     grpc_client = GRPCClient(args.grpc_host, args.grpc_port)
 
     signaling = GstSignalingForAiortc(
@@ -23,23 +28,23 @@ async def main(args: argparse.Namespace) -> int:
     pc = RTCPeerConnection()
     joint_state_datachannel = pc.createDataChannel("joint_state")
 
-    @joint_state_datachannel.on("open")
-    def on_joint_state_datachannel_open():
-        async def send_joint_state():
+    @joint_state_datachannel.on("open")  # type: ignore[misc]
+    def on_joint_state_datachannel_open() -> None:
+        async def send_joint_state() -> None:
             async for state in grpc_client.get_state():
                 joint_state_datachannel.send(state.SerializeToString())
 
         asyncio.ensure_future(send_joint_state())
 
-    @pc.on("datachannel")
-    def on_datachannel(channel):
+    @pc.on("datachannel")  # type: ignore[misc]
+    def on_datachannel(channel: RTCDataChannel) -> None:
         logging.info(f"New data channel: {channel.label}")
 
         if channel.label == "joint_command":
 
-            @channel.on("message")
-            async def on_message(message):
-                logging.info(f"Received message: {message}")
+            @channel.on("message")  # type: ignore[misc]
+            async def on_message(message: bytes) -> None:
+                logging.info(f"Received message: {message!r}")
                 await grpc_client.send_command(message)
 
     await pc.setLocalDescription(await pc.createOffer())
