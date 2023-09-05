@@ -18,19 +18,19 @@ class GRPCClient:
         self.port = port
 
         channel = grpc.insecure_channel(f"{host}:{port}")
-        self.joint_stub = joint_pb2_grpc.JointServiceStub(channel)
-        self.joint_ids = self.joint_stub.GetAllJointsId(Empty())
+        joint_stub = joint_pb2_grpc.JointServiceStub(channel)
+        self.joint_ids = joint_stub.GetAllJointsId(Empty())
 
         self.logger.info(
             f"Connected to grpc {host}:{port} with joints: {self.joint_ids.names}"
         )
 
+        self.channel = grpc.aio.insecure_channel(f"{self.host}:{self.port}")
+        self.joint_stub = joint_pb2_grpc.JointServiceStub(self.channel)
+
     async def get_state(
         self,
     ) -> AsyncGenerator[joint_pb2.JointsState, None]:
-        channel = grpc.aio.insecure_channel(f"{self.host}:{self.port}")
-        joint_stub = joint_pb2_grpc.JointServiceStub(channel)
-
         stream_req = joint_pb2.StreamJointsRequest(
             request=joint_pb2.JointsStateRequest(
                 ids=[joint_pb2.JointId(uid=uid) for uid in self.joint_ids.uids],
@@ -42,7 +42,7 @@ class GRPCClient:
             publish_frequency=100,
         )
 
-        async for state in joint_stub.StreamJointsState(stream_req):
+        async for state in self.joint_stub.StreamJointsState(stream_req):
             yield state
 
     async def send_command(self, message: bytes):
@@ -51,4 +51,4 @@ class GRPCClient:
 
         if cmd.HasField("joints"):
             joints_command = cmd.joints
-            self.joint_stub.SendJointsCommands(joints_command)
+            await self.joint_stub.SendJointsCommands(joints_command)
