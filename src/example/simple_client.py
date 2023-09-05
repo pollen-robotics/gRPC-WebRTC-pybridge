@@ -6,6 +6,7 @@ from google.protobuf.wrappers_pb2 import FloatValue
 from grpc_webrtc_bridge.grpc_client import GRPCClient
 from gst_signalling.aiortc_adapter import BYE, GstSignalingForAiortc
 import logging
+import numpy as np
 from reachy_sdk_api import any_joint_command_pb2, joint_pb2
 import sys
 
@@ -33,6 +34,9 @@ async def main(args: argparse.Namespace) -> int:
                 pos = await aioconsole.ainput("Enter a position: ")
                 if pos == "q":
                     break
+
+                pos = np.deg2rad(pos)
+
                 joint_command = joint_pb2.JointCommand(
                     id=joint_pb2.JointId(name="r_elbow_pitch"),
                     goal_position=FloatValue(value=float(pos)),
