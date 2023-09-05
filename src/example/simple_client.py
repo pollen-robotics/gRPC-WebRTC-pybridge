@@ -9,6 +9,7 @@ import argparse
 import asyncio
 from google.protobuf.wrappers_pb2 import FloatValue
 from gst_signalling.aiortc_adapter import BYE, GstSignalingForAiortc
+from gst_signalling.utils import find_producer_peer_id_by_name
 import logging
 import numpy as np
 from reachy_sdk_api import any_joint_command_pb2, joint_pb2
@@ -18,12 +19,14 @@ import sys
 async def main(args: argparse.Namespace) -> int:  # noqa: C901
     logger = logging.getLogger(__name__)
 
+    producer_peer_id = find_producer_peer_id_by_name(args.webrtc_producer_name)
+
     signaling = GstSignalingForAiortc(
         signaling_host=args.webrtc_signaling_host,
         signaling_port=args.webrtc_signaling_port,
         role="consumer",
         name="grpc_webrtc_bridge",
-        remote_producer_peer_id=args.webrtc_producer_peer_id,
+        remote_producer_peer_id=producer_peer_id,
     )
     await signaling.connect()
 
@@ -101,10 +104,10 @@ if __name__ == "__main__":
         help="Port of the gstreamer webrtc signaling server.",
     )
     parser.add_argument(
-        "--webrtc-producer-peer-id",
+        "--webrtc-producer-name",
         type=str,
-        required=True,
-        help="Peer id of the producer.",
+        default="grpc_webrtc_bridge",
+        help="Name of the producer.",
     )
 
     # Logging
