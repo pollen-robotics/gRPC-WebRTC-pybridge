@@ -1,12 +1,7 @@
-from aiortc import (
-    RTCIceCandidate,
-    RTCDataChannel,
-    RTCPeerConnection,
-    RTCSessionDescription,
-)
+from aiortc import RTCDataChannel
 import argparse
 import asyncio
-from gst_signalling.aiortc_adapter import BYE, GstSignalingForAiortc
+from gst_signalling import GstSession, GstSignallingProducer
 import sys
 import logging
 
@@ -14,57 +9,48 @@ import logging
 from .grpc_client import GRPCClient
 
 
-async def main(args: argparse.Namespace) -> int:  # noqa: C901
-    grpc_client = GRPCClient(args.grpc_host, args.grpc_port)
-
-    signaling = GstSignalingForAiortc(
-        signaling_host=args.webrtc_signaling_host,
-        signaling_port=args.webrtc_signaling_port,
-        role="producer",
+def main(args: argparse.Namespace) -> int:  # noqa: C901
+    producer = GstSignallingProducer(
+        host=args.webrtc_signaling_host,
+        port=args.webrtc_signaling_port,
         name="grpc_webrtc_bridge",
     )
-    await signaling.connect()
 
-    pc = RTCPeerConnection()
-    joint_state_datachannel = pc.createDataChannel("joint_state")
+    @producer.on("new_session")  # type: ignore[misc]
+    def on_new_session(session: GstSession) -> None:
+        logging.info(f"New session: {session}")
+        pc = session.pc
 
-    @joint_state_datachannel.on("open")  # type: ignore[misc]
-    def on_joint_state_datachannel_open() -> None:
-        async def send_joint_state() -> None:
-            async for state in grpc_client.get_state():
-                joint_state_datachannel.send(state.SerializeToString())
+        grpc_client = GRPCClient(args.grpc_host, args.grpc_port)
 
-        asyncio.ensure_future(send_joint_state())
+        joint_state_datachannel = pc.createDataChannel("joint_state")
 
-    @pc.on("datachannel")  # type: ignore[misc]
-    def on_datachannel(channel: RTCDataChannel) -> None:
-        logging.info(f"New data channel: {channel.label}")
+        @joint_state_datachannel.on("open")  # type: ignore[misc]
+        def on_joint_state_datachannel_open() -> None:
+            async def send_joint_state() -> None:
+                async for state in grpc_client.get_state():
+                    joint_state_datachannel.send(state.SerializeToString())
 
-        if channel.label == "joint_command":
+            asyncio.ensure_future(send_joint_state())
 
-            @channel.on("message")  # type: ignore[misc]
-            async def on_message(message: bytes) -> None:
-                logging.info(f"Received message: {message!r}")
-                await grpc_client.send_command(message)
+        @pc.on("datachannel")  # type: ignore[misc]
+        def on_datachannel(channel: RTCDataChannel) -> None:
+            logging.info(f"New data channel: {channel.label}")
 
-    await pc.setLocalDescription(await pc.createOffer())
-    await signaling.send(pc.localDescription)
+            if channel.label == "joint_command":
 
-    while True:
-        obj = await signaling.receive()
-        if isinstance(obj, RTCSessionDescription):
-            await pc.setRemoteDescription(obj)
+                @channel.on("message")  # type: ignore[misc]
+                async def on_message(message: bytes) -> None:
+                    logging.info(f"Received message: {message!r}")
+                    await grpc_client.send_command(message)
 
-            # Negotiation needed
-            if obj.type == "offer":
-                await pc.setLocalDescription(await pc.createAnswer())
-                await signaling.send(pc.localDescription)
-
-        elif isinstance(obj, RTCIceCandidate):
-            pc.addIceCandidate(obj)
-
-        elif obj is BYE:
-            break
+    loop = asyncio.get_event_loop()
+    try:
+        loop.run_until_complete(producer.serve4ever())
+    except KeyboardInterrupt:
+        pass
+    finally:
+        loop.run_until_complete(producer.close())
 
     return 0
 
@@ -112,4 +98,4 @@ if __name__ == "__main__":
     if args.verbose:
         logging.basicConfig(level=logging.INFO)
 
-    sys.exit(asyncio.run(main(args)))
+    sys.exit(main(args))
