@@ -1,3 +1,4 @@
+import aiortc
 from aiortc import RTCDataChannel
 import argparse
 import asyncio
@@ -28,8 +29,11 @@ def main(args: argparse.Namespace) -> int:  # noqa: C901
         @joint_state_datachannel.on("open")  # type: ignore[misc]
         def on_joint_state_datachannel_open() -> None:
             async def send_joint_state() -> None:
-                async for state in grpc_client.get_state():
-                    joint_state_datachannel.send(state.SerializeToString())
+                try:
+                    async for state in grpc_client.get_state():
+                        joint_state_datachannel.send(state.SerializeToString())
+                except aiortc.exceptions.InvalidStateError:
+                    logging.info("Data channel closed.")
 
             asyncio.ensure_future(send_joint_state())
 
