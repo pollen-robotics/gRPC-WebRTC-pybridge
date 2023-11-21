@@ -1,7 +1,3 @@
-#
-# Register to ReachyState channel
-# Send Commands to apropiate channels
-
 from aiortc import RTCDataChannel
 import argparse
 import asyncio
@@ -11,39 +7,73 @@ import logging
 import sys
 
 
+from reachy2_sdk_api.reachy_pb2 import ReachyState
+from reachy2_sdk_api.webrtc_bridge_pb2 import (
+    AnyCommand,
+    AnyCommands,
+    Connect,
+    Disconnect,
+    GetReachy,
+    ServiceRequest,
+    ServiceResponse,
+)
+
+
 class TeleopApp:
-    def __init__(
-        self,
-        webrtc_signaling_host: str,
-        webrtc_signaling_port: int,
-        webrtc_producer_name: str,
-        producer_peer_id: str,
-    ) -> None:
+    def __init__(self, args: argparse.Namespace) -> None:
         self.logger = logging.getLogger(__name__)
 
-        self.producer_peer_id = find_producer_peer_id_by_name(
-            webrtc_signaling_host,
-            webrtc_signaling_port,
-            webrtc_producer_name,
+        producer_peer_id = find_producer_peer_id_by_name(
+            args.webrtc_signaling_host,
+            args.webrtc_signaling_port,
+            args.webrtc_producer_name,
         )
 
         self.signaling = GstSignallingConsumer(
-            host=webrtc_signaling_host,
-            port=webrtc_signaling_port,
+            host=args.webrtc_signaling_host,
+            port=args.webrtc_signaling_port,
             producer_peer_id=producer_peer_id,
         )
 
-        self.got_reachy = asyncio.Event()
+        self.connected = asyncio.Event()
 
-        @signaling.on("new_session")  # type: ignore[misc]
+        @self.signaling.on("new_session")  # type: ignore[misc]
         def on_new_session(session: GstSession) -> None:
             self.logger.info(f"New session: {session}")
 
             pc = session.pc
 
             @pc.on("datachannel")  # type: ignore[misc]
-            def on_datachannel(channel: RTCDataChannel) -> None:
+            async def on_datachannel(channel: RTCDataChannel) -> None:
                 self.logger.info(f"Joined new data channel: {channel.label}")
+                print(f"Joined new data channel: {channel.label}")
+
+                if channel.label.startswith("reachy_state"):
+
+                    @channel.on("message")  # type: ignore[misc]
+                    def on_message(message: bytes) -> None:
+                        reachy_state = ReachyState()
+                        reachy_state.ParseFromString(message)
+                        self.reachy_state = reachy_state
+
+                if channel.label.startswith("reachy_command"):
+
+                    async def send_command() -> None:
+                        while True:
+                            commands = AnyCommands(
+                                commands=[
+                                    AnyCommand(
+                                        turn_on=self.connection.reachy.l_arm.part_id,
+                                    ),
+                                    AnyCommand(
+                                        turn_on=self.connection.reachy.r_arm.part_id,
+                                    ),
+                                ],
+                            )
+                            channel.send(commands.SerializeToString())
+                            await asyncio.sleep(1)
+
+                    asyncio.ensure_future(send_command())
 
                 if channel.label == "service":
 
@@ -52,32 +82,28 @@ class TeleopApp:
                         response = ServiceResponse()
                         response.ParseFromString(message)
 
-                        if response.HasField("reachy"):
-                            print(f"Received message: {response.reachy}")
-                            self.reachy = response.reachy
-                            self.got_reachy.set()
+                        if response.HasField("connection_status"):
+                            self.connection = response.connection_status
+                            self.connected.set()
 
                         if response.HasField("error"):
                             print(f"Received error message: {response.error}")
 
                     # Ask for Reachy description (id, present parts, etc.)
-                    channel.send(ServiceRequest(GetReachy()))
-                    self.got_reachy.wait()
-
+                    req = ServiceRequest(
+                        get_reachy=GetReachy(),
+                    )
+                    channel.send(req.SerializeToString())
+                    await self.connected.wait()
+                    self.logger.info(f"Got reachy: {self.connection.reachy}")
                     # Request for state stream update
-                    channel.send(
-                        ServiceRequest(
-                            StreamState(id=self.reachy.id, publish_frequency=100)
+                    req = ServiceRequest(
+                        connect=Connect(
+                            reachy_id=self.connection.reachy.id,
+                            update_frequency=100,
                         )
                     )
-
-                if channel.label == "reachy_state":
-
-                    @channel.on("message")  # type: ignore[misc]
-                    def on_message(message: bytes) -> None:
-                        reachy_state = reachy_pb2.ReachyState()
-                        reachy_state.ParseFromString(message)
-                        self.reachy_state = reachy_state
+                    channel.send(req.SerializeToString())
 
     async def run_consumer(self) -> None:
         await self.signaling.connect()
@@ -88,7 +114,7 @@ class TeleopApp:
 
 
 def main(args: argparse.Namespace) -> int:  # noqa: C901
-    teleop = TeleopApp(**args)
+    teleop = TeleopApp(args)
 
     # run event loop
     loop = asyncio.get_event_loop()

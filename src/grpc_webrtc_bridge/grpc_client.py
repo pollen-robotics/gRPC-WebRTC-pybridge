@@ -12,6 +12,7 @@ from reachy2_sdk_api import (
     head_pb2_grpc,
     reachy_pb2,
     reachy_pb2_grpc,
+    webrtc_bridge_pb2,
 )
 
 
@@ -26,12 +27,6 @@ class GRPCClient:
         self.host = host
         self.port = port
 
-        # Retrieve Reachy ID
-        channel = grpc.insecure_channel(f"{host}:{port}")
-        reachy_stub = reachy_pb2_grpc.ReachyServiceStub(channel)
-        self.reachy = reachy_stub.GetReachy(Empty())
-        self.logger.info(f"Connected to grpc {host}:{port} with Reachy: {self.reachy}")
-
         # Prepare channel for states/commands
         self.async_channel = grpc.aio.insecure_channel(f"{host}:{port}")
 
@@ -40,13 +35,18 @@ class GRPCClient:
         self.hand_stub = hand_pb2_grpc.HandServiceStub(self.async_channel)
         self.head_stub = head_pb2_grpc.HeadServiceStub(self.async_channel)
 
+    # Got Reachy(s) description
+    async def get_reachy(self) -> reachy_pb2.Reachy:
+        return await self.reachy_stub.GetReachy(Empty())
+
     # Retrieve Reachy entire state
     async def get_reachy_state(
         self,
+        reachy_id: reachy_pb2.ReachyId,
         publish_frequency: float = 100,
     ) -> AsyncGenerator[reachy_pb2.ReachyState, None]:
         stream_req = reachy_pb2.ReachyStreamStateRequest(
-            id=self.reachy.id,
+            id=reachy_id,
             publish_frequency=publish_frequency,
         )
 
@@ -54,10 +54,14 @@ class GRPCClient:
             yield state
 
     # Send Commands (torque and cartesian targets)
-    async def set_arm_torque(self, on: bool) -> None:
-        
+    async def handle_commands(self, commands: webrtc_bridge_pb2.AnyCommands) -> None:
+        print(f"Received commands: {commands}")
+        pass
 
-    # async def send_command(self, message: bytes) -> None:   
+    async def set_arm_torque(self, on: bool) -> None:
+        pass
+
+    # async def send_command(self, message: bytes) -> None:
     #     cmd = any_joint_command_pb2.AnyJointsCommand()
     #     cmd.ParseFromString(message)
 
