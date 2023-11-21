@@ -3,7 +3,16 @@ from typing import AsyncGenerator
 import grpc
 
 from google.protobuf.empty_pb2 import Empty
-from reachy_sdk_api import any_joint_command_pb2, joint_pb2_grpc, joint_pb2
+from reachy2_sdk_api import (
+    arm_pb2,
+    arm_pb2_grpc,
+    hand_pb2,
+    hand_pb2_grpc,
+    head_pb2,
+    head_pb2_grpc,
+    reachy_pb2,
+    reachy_pb2_grpc,
+)
 
 
 class GRPCClient:
@@ -17,38 +26,41 @@ class GRPCClient:
         self.host = host
         self.port = port
 
+        # Retrieve Reachy ID
         channel = grpc.insecure_channel(f"{host}:{port}")
-        joint_stub = joint_pb2_grpc.JointServiceStub(channel)
-        self.joint_ids = joint_stub.GetAllJointsId(Empty())
+        reachy_stub = reachy_pb2_grpc.ReachyServiceStub(channel)
+        self.reachy = reachy_stub.GetReachy(Empty())
+        self.logger.info(f"Connected to grpc {host}:{port} with Reachy: {self.reachy}")
 
-        self.logger.info(
-            f"Connected to grpc {host}:{port} with joints: {self.joint_ids.names}"
-        )
+        # Prepare channel for states/commands
+        self.async_channel = grpc.aio.insecure_channel(f"{host}:{port}")
 
-        self.channel = grpc.aio.insecure_channel(f"{self.host}:{self.port}")
-        self.joint_stub = joint_pb2_grpc.JointServiceStub(self.channel)
+        self.reachy_stub = reachy_pb2_grpc.ReachyServiceStub(self.async_channel)
+        self.arm_stub = arm_pb2_grpc.ArmServiceStub(self.async_channel)
+        self.hand_stub = hand_pb2_grpc.HandServiceStub(self.async_channel)
+        self.head_stub = head_pb2_grpc.HeadServiceStub(self.async_channel)
 
-    async def get_state(
+    # Retrieve Reachy entire state
+    async def get_reachy_state(
         self,
-    ) -> AsyncGenerator[joint_pb2.JointsState, None]:
-        stream_req = joint_pb2.StreamJointsRequest(
-            request=joint_pb2.JointsStateRequest(
-                ids=[joint_pb2.JointId(uid=uid) for uid in self.joint_ids.uids],
-                requested_fields=[
-                    joint_pb2.JointField.PRESENT_POSITION,
-                    joint_pb2.JointField.TEMPERATURE,
-                ],
-            ),
-            publish_frequency=100,
+        publish_frequency: float = 100,
+    ) -> AsyncGenerator[reachy_pb2.ReachyState, None]:
+        stream_req = reachy_pb2.ReachyStreamStateRequest(
+            id=self.reachy.id,
+            publish_frequency=publish_frequency,
         )
 
-        async for state in self.joint_stub.StreamJointsState(stream_req):
+        async for state in self.reachy_stub.StreamReachyState(stream_req):
             yield state
 
-    async def send_command(self, message: bytes) -> None:
-        cmd = any_joint_command_pb2.AnyJointsCommand()
-        cmd.ParseFromString(message)
+    # Send Commands (torque and cartesian targets)
+    async def set_arm_torque(self, on: bool) -> None:
+        
 
-        if cmd.HasField("joints"):
-            joints_command = cmd.joints
-            await self.joint_stub.SendJointsCommands(joints_command)
+    # async def send_command(self, message: bytes) -> None:   
+    #     cmd = any_joint_command_pb2.AnyJointsCommand()
+    #     cmd.ParseFromString(message)
+
+    #     if cmd.HasField("joints"):
+    #         joints_command = cmd.joints
+    #         await self.joint_stub.SendJointsCommands(joints_command)

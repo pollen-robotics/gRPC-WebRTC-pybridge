@@ -1,16 +1,17 @@
 import aiortc
-from aiortc import RTCDataChannel
 import argparse
 import asyncio
 from gst_signalling import GstSession, GstSignallingProducer
-import sys
 import logging
+import sys
 
 
 from .grpc_client import GRPCClient
 
 
 def main(args: argparse.Namespace) -> int:  # noqa: C901
+    logger = logging.getLogger(__name__)
+
     producer = GstSignallingProducer(
         host=args.webrtc_signaling_host,
         port=args.webrtc_signaling_port,
@@ -19,34 +20,23 @@ def main(args: argparse.Namespace) -> int:  # noqa: C901
 
     @producer.on("new_session")  # type: ignore[misc]
     def on_new_session(session: GstSession) -> None:
-        logging.info(f"New session: {session}")
+        logger.info(f"New session: {session}")
         pc = session.pc
 
         grpc_client = GRPCClient(args.grpc_host, args.grpc_port)
 
-        joint_state_datachannel = pc.createDataChannel("joint_state")
+        reachy_state_datachannel = pc.createDataChannel("reachy_state")
 
-        @joint_state_datachannel.on("open")  # type: ignore[misc]
-        def on_joint_state_datachannel_open() -> None:
+        @reachy_state_datachannel.on("open")  # type: ignore[misc]
+        def on_jreachy_state_datachannel_open() -> None:
             async def send_joint_state() -> None:
                 try:
-                    async for state in grpc_client.get_state():
-                        joint_state_datachannel.send(state.SerializeToString())
+                    async for state in grpc_client.get_reachy_state():
+                        reachy_state_datachannel.send(state.SerializeToString())
                 except aiortc.exceptions.InvalidStateError:
                     logging.info("Data channel closed.")
 
             asyncio.ensure_future(send_joint_state())
-
-        @pc.on("datachannel")  # type: ignore[misc]
-        def on_datachannel(channel: RTCDataChannel) -> None:
-            logging.info(f"New data channel: {channel.label}")
-
-            if channel.label == "joint_command":
-
-                @channel.on("message")  # type: ignore[misc]
-                async def on_message(message: bytes) -> None:
-                    logging.info(f"Received message: {message!r}")
-                    await grpc_client.send_command(message)
 
     loop = asyncio.get_event_loop()
     try:
@@ -72,7 +62,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--grpc-port",
         type=int,
-        default=50055,
+        default=50051,
         help="Port of the grpc server.",
     )
 
