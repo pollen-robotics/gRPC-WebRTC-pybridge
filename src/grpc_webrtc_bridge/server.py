@@ -1,18 +1,13 @@
-import aiortc
 import argparse
 import asyncio
-from gst_signalling import GstSession, GstSignallingProducer
 import logging
 import sys
 
-from reachy2_sdk_api.webrtc_bridge_pb2 import (
-    AnyCommand,
-    AnyCommands,
-    ConnectionStatus,
-    ServiceRequest,
-    ServiceResponse,
-)
-
+import aiortc
+from gst_signalling import GstSession, GstSignallingProducer
+from reachy2_sdk_api.webrtc_bridge_pb2 import (AnyCommand, AnyCommands,
+                                               ConnectionStatus,
+                                               ServiceRequest, ServiceResponse)
 
 from .grpc_client import GRPCClient
 
@@ -112,21 +107,7 @@ class GRPCWebRTCBridge:
         return ServiceResponse()
 
 
-def main(args: argparse.Namespace) -> int:  # noqa: C901
-    bridge = GRPCWebRTCBridge(args)
-
-    loop = asyncio.get_event_loop()
-    try:
-        loop.run_until_complete(bridge.serve4ever())
-    except KeyboardInterrupt:
-        pass
-    finally:
-        loop.run_until_complete(bridge.close())
-
-    return 0
-
-
-if __name__ == "__main__":
+def main() -> int:  # noqa: C901
     parser = argparse.ArgumentParser()
 
     # gRPC
@@ -169,4 +150,18 @@ if __name__ == "__main__":
     if args.verbose:
         logging.basicConfig(level=logging.INFO)
 
-    sys.exit(main(args))
+    bridge = GRPCWebRTCBridge(args)
+
+    loop = asyncio.get_event_loop()
+    try:
+        loop.run_until_complete(bridge.serve4ever())
+    except KeyboardInterrupt:
+        pass
+    finally:
+        loop.run_until_complete(bridge.close())
+
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
