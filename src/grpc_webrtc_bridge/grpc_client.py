@@ -78,7 +78,7 @@ class GRPCClient:
     async def handle_hand_command(self, cmd: webrtc_bridge_pb2.HandCommand) -> None:
         # TODO: Could this be done in parallel?
         if cmd.HasField("hand_goal"):
-            await self.hand_stub.SetHandPosition(cmd.hand_cartesian_goal)
+            await self.hand_stub.SetHandPosition(cmd.hand_goal)
         if cmd.HasField("turn_on"):
             await self.hand_stub.TurnOn(cmd.turn_on)
         if cmd.HasField("turn_off"):
