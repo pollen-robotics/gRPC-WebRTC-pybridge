@@ -11,6 +11,7 @@ from reachy2_sdk_api.reachy_pb2 import ReachyState
 from reachy2_sdk_api.webrtc_bridge_pb2 import (
     AnyCommand,
     AnyCommands,
+    ArmCommand,
     Connect,
     Disconnect,
     GetReachy,
@@ -46,6 +47,7 @@ class TeleopApp:
             @pc.on("datachannel")  # type: ignore[misc]
             async def on_datachannel(channel: RTCDataChannel) -> None:
                 self.logger.info(f"Joined new data channel: {channel.label}")
+                # TODO: tmp
                 print(f"Joined new data channel: {channel.label}")
 
                 if channel.label.startswith("reachy_state"):
@@ -63,10 +65,14 @@ class TeleopApp:
                             commands = AnyCommands(
                                 commands=[
                                     AnyCommand(
-                                        turn_on=self.connection.reachy.l_arm.part_id,
+                                        arm_command=ArmCommand(
+                                            turn_on=self.connection.reachy.l_arm.part_id,
+                                        ),
                                     ),
                                     AnyCommand(
-                                        turn_on=self.connection.reachy.r_arm.part_id,
+                                        arm_command=ArmCommand(
+                                            turn_on=self.connection.reachy.r_arm.part_id,
+                                        ),
                                     ),
                                 ],
                             )
@@ -96,7 +102,8 @@ class TeleopApp:
                     channel.send(req.SerializeToString())
                     await self.connected.wait()
                     self.logger.info(f"Got reachy: {self.connection.reachy}")
-                    # Request for state stream update
+
+                    # Then, Request for state stream update and start sending commands
                     req = ServiceRequest(
                         connect=Connect(
                             reachy_id=self.connection.reachy.id,
