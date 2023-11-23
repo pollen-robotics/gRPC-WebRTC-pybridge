@@ -99,6 +99,12 @@ class GRPCWebRTCBridge:
                 commands = AnyCommands()
                 commands.ParseFromString(message)
 
+                if not commands.commands:
+                    self.logger.warning(
+                        "No command or incorrect message received {message}"
+                    )
+                    return
+
                 await grpc_client.handle_commands(commands)
 
             return ServiceResponse()
