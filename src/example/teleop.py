@@ -7,6 +7,11 @@ import logging
 import sys
 
 
+from reachy2_sdk_api.hand_pb2 import (
+    HandPosition,
+    HandPositionRequest,
+    ParallelGripperPosition,
+)
 from reachy2_sdk_api.reachy_pb2 import ReachyState
 from reachy2_sdk_api.webrtc_bridge_pb2 import (
     AnyCommand,
@@ -15,6 +20,7 @@ from reachy2_sdk_api.webrtc_bridge_pb2 import (
     Connect,
     Disconnect,
     GetReachy,
+    HandCommand,
     ServiceRequest,
     ServiceResponse,
 )
@@ -46,8 +52,7 @@ class TeleopApp:
 
             @pc.on("datachannel")  # type: ignore[misc]
             async def on_datachannel(channel: RTCDataChannel) -> None:
-                self.logger.info(f"Joined new data channel: {channel.label}")
-                # TODO: tmp
+                # self.logger.info(f"Joined new data channel: {channel.label}")
                 print(f"Joined new data channel: {channel.label}")
 
                 if channel.label.startswith("reachy_state"):
@@ -61,23 +66,30 @@ class TeleopApp:
                 if channel.label.startswith("reachy_command"):
 
                     async def send_command() -> None:
+                        import numpy as np
+                        import time
+
                         while True:
+                            target = 0.5 - 0.5 * np.sin(2 * np.pi * 1 * time.time())
+
                             commands = AnyCommands(
                                 commands=[
                                     AnyCommand(
-                                        arm_command=ArmCommand(
-                                            turn_on=self.connection.reachy.l_arm.part_id,
-                                        ),
-                                    ),
-                                    AnyCommand(
-                                        arm_command=ArmCommand(
-                                            turn_on=self.connection.reachy.r_arm.part_id,
+                                        hand_command=HandCommand(
+                                            hand_goal=HandPositionRequest(
+                                                id=self.connection.reachy.r_hand.part_id,
+                                                position=HandPosition(
+                                                    parallel_gripper=ParallelGripperPosition(
+                                                        position=target
+                                                    )
+                                                ),
+                                            ),
                                         ),
                                     ),
                                 ],
                             )
                             channel.send(commands.SerializeToString())
-                            await asyncio.sleep(1)
+                            await asyncio.sleep(0.01)
 
                     asyncio.ensure_future(send_command())
 
