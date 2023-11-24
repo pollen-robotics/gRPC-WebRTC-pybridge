@@ -7,6 +7,7 @@ import aiortc
 from gst_signalling import GstSession, GstSignallingProducer
 from reachy2_sdk_api.webrtc_bridge_pb2 import (
     AnyCommands,
+    Connect,
     ConnectionStatus,
     ServiceRequest,
     ServiceResponse,
@@ -55,64 +56,84 @@ class GRPCWebRTCBridge:
         grpc_client: GRPCClient,
         pc: aiortc.RTCPeerConnection,
     ) -> ServiceResponse:
-        self.logger.info(f"Received message: {request}")
+        self.logger.info(f"Received service request message: {request}")
 
         if request.HasField("get_reachy"):
-            reachy = await grpc_client.get_reachy()
+            resp = await self.handle_get_reachy_request(grpc_client)
 
-            resp = ServiceResponse(
-                connection_status=ConnectionStatus(
-                    connected=True,
-                    state_channel=f"reachy_state_{reachy.id.id}",
-                    command_channel=f"reachy_command_{reachy.id.id}",
-                    reachy=reachy,
-                ),
-            )
-            self.logger.info(f"Sending reachy message: {resp}")
-            return resp
+        elif request.HasField("connect"):
+            resp = await self.handle_connect_request(request.connect, grpc_client, pc)
 
-        if request.HasField("connect"):
-            reachy_state_datachannel = pc.createDataChannel(
-                f"reachy_state_{request.connect.reachy_id.id}"
-            )
+        elif request.HasField("disconnect"):
+            resp = await self.handle_disconnect_request()
 
-            @reachy_state_datachannel.on("open")  # type: ignore[misc]
-            def on_reachy_state_datachannel_open() -> None:
-                async def send_joint_state() -> None:
-                    try:
-                        async for state in grpc_client.get_reachy_state(
-                            request.connect.reachy_id,
-                            request.connect.update_frequency,
-                        ):
-                            reachy_state_datachannel.send(state.SerializeToString())
-                    except aiortc.exceptions.InvalidStateError:
-                        logging.info("Data channel closed.")
+        self.logger.info(f"Sending service response message: {resp}")
+        return resp
 
-                asyncio.ensure_future(send_joint_state())
+    async def handle_get_reachy_request(
+        self, grpc_client: GRPCClient
+    ) -> ServiceResponse:
+        reachy = await grpc_client.get_reachy()
 
-            reachy_command_datachannel = pc.createDataChannel(
-                f"reachy_command_{request.connect.reachy_id.id}"
-            )
+        resp = ServiceResponse(
+            connection_status=ConnectionStatus(
+                connected=True,
+                state_channel=f"reachy_state_{reachy.id.id}",
+                command_channel=f"reachy_command_{reachy.id.id}",
+                reachy=reachy,
+            ),
+        )
 
-            @reachy_command_datachannel.on("message")  # type: ignore[misc]
-            async def on_reachy_command_datachannel_message(message: bytes) -> None:
-                commands = AnyCommands()
-                commands.ParseFromString(message)
+        return resp
 
-                if not commands.commands:
-                    self.logger.warning(
-                        "No command or incorrect message received {message}"
-                    )
-                    return
+    async def handle_connect_request(
+        self,
+        request: Connect,
+        grpc_client: GRPCClient,
+        pc: aiortc.RTCPeerConnection,
+    ) -> ServiceResponse:
+        # Create state data channel and start sending state
+        reachy_state_datachannel = pc.createDataChannel(
+            f"reachy_state_{request.reachy_id.id}"
+        )
 
-                await grpc_client.handle_commands(commands)
+        @reachy_state_datachannel.on("open")  # type: ignore[misc]
+        def on_reachy_state_datachannel_open() -> None:
+            async def send_joint_state() -> None:
+                try:
+                    async for state in grpc_client.get_reachy_state(
+                        request.reachy_id,
+                        request.update_frequency,
+                    ):
+                        reachy_state_datachannel.send(state.SerializeToString())
+                except aiortc.exceptions.InvalidStateError:
+                    logging.info("Data channel closed.")
 
-            return ServiceResponse()
+            asyncio.ensure_future(send_joint_state())
 
-        if request.HasField("disconnect"):
-            # TODO: Close data channels
-            print(f"DISCONNECT")
-            return ServiceResponse()
+        # Create command data channel and start handling commands
+        reachy_command_datachannel = pc.createDataChannel(
+            f"reachy_command_{request.reachy_id.id}"
+        )
+
+        @reachy_command_datachannel.on("message")  # type: ignore[misc]
+        async def on_reachy_command_datachannel_message(message: bytes) -> None:
+            commands = AnyCommands()
+            commands.ParseFromString(message)
+
+            if not commands.commands:
+                self.logger.warning(
+                    "No command or incorrect message received {message}"
+                )
+                return
+
+            await grpc_client.handle_commands(commands)
+
+        return ServiceResponse()
+
+    async def handle_disconnect_request(self) -> ServiceResponse:
+        # TODO: implement me
+        self.logger.info(f"Disconnecting...")
 
         return ServiceResponse()
 
