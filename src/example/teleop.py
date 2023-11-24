@@ -108,12 +108,6 @@ class TeleopApp:
             reachy_state.ParseFromString(message)
             self.reachy_state = reachy_state
 
-            self.log["current_t"].append(
-                reachy_state.timestamp.ToDatetime().timestamp()
-            )
-
-            self.log["current_hand"].append(reachy_state.r_hand_state.opening.value)
-
     def ensure_send_command(self, channel: RTCDataChannel, freq: float = 100) -> None:
         async def send_command() -> None:
             while True:
