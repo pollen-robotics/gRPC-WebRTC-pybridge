@@ -131,9 +131,6 @@ class TeleopApp:
                 )
                 channel.send(commands.SerializeToString())
 
-                self.log["target_t"].append(datetime.datetime.now().timestamp())
-                self.log["target_hand"].append(target)
-
                 await asyncio.sleep(1 / freq)
 
         asyncio.ensure_future(send_command())
