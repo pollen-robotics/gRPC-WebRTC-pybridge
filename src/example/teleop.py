@@ -16,9 +16,7 @@ from reachy2_sdk_api.reachy_pb2 import ReachyState
 from reachy2_sdk_api.webrtc_bridge_pb2 import (
     AnyCommand,
     AnyCommands,
-    ArmCommand,
     Connect,
-    Disconnect,
     GetReachy,
     HandCommand,
     ServiceRequest,
@@ -52,8 +50,7 @@ class TeleopApp:
 
             @pc.on("datachannel")  # type: ignore[misc]
             async def on_datachannel(channel: RTCDataChannel) -> None:
-                # self.logger.info(f"Joined new data channel: {channel.label}")
-                print(f"Joined new data channel: {channel.label}")
+                self.logger.info(f"Joined new data channel: {channel.label}")
 
                 if channel.label.startswith("reachy_state"):
 
