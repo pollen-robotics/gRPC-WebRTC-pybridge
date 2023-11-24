@@ -133,7 +133,7 @@ class GRPCWebRTCBridge:
 
     async def handle_disconnect_request(self) -> ServiceResponse:
         # TODO: implement me
-        self.logger.info(f"Disconnecting...")
+        self.logger.info("Disconnecting...")
 
         return ServiceResponse()
 
