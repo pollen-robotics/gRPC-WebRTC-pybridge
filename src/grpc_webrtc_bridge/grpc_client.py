@@ -54,9 +54,6 @@ class GRPCClient:
     async def handle_commands(self, commands: webrtc_bridge_pb2.AnyCommands) -> None:
         self.logger.info(f"Received message: {commands}")
 
-        # TODO: tmp
-        print(f"Received commands: {commands}")
-
         # TODO: Could this be done in parallel?
         for cmd in commands.commands:
             if cmd.HasField("arm_command"):
