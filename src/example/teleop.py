@@ -93,7 +93,7 @@ class TeleopApp:
                 if channel.label == "service":
 
                     @channel.on("message")  # type: ignore[misc]
-                    def on_message(message: bytes) -> None:
+                    def on_service_message(message: bytes) -> None:
                         response = ServiceResponse()
                         response.ParseFromString(message)
 
