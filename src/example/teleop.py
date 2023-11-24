@@ -5,6 +5,9 @@ from gst_signalling import GstSession, GstSignallingConsumer
 from gst_signalling.utils import find_producer_peer_id_by_name
 import logging
 import sys
+import numpy as np
+import time
+import datetime
 
 
 from reachy2_sdk_api.hand_pb2 import (
@@ -53,73 +56,13 @@ class TeleopApp:
                 self.logger.info(f"Joined new data channel: {channel.label}")
 
                 if channel.label.startswith("reachy_state"):
-
-                    @channel.on("message")  # type: ignore[misc]
-                    def on_message(message: bytes) -> None:
-                        reachy_state = ReachyState()
-                        reachy_state.ParseFromString(message)
-                        self.reachy_state = reachy_state
+                    self.handle_state_channel(channel)
 
                 if channel.label.startswith("reachy_command"):
-
-                    async def send_command() -> None:
-                        import numpy as np
-                        import time
-
-                        while True:
-                            target = 0.5 - 0.5 * np.sin(2 * np.pi * 1 * time.time())
-
-                            commands = AnyCommands(
-                                commands=[
-                                    AnyCommand(
-                                        hand_command=HandCommand(
-                                            hand_goal=HandPositionRequest(
-                                                id=self.connection.reachy.r_hand.part_id,
-                                                position=HandPosition(
-                                                    parallel_gripper=ParallelGripperPosition(
-                                                        position=target
-                                                    )
-                                                ),
-                                            ),
-                                        ),
-                                    ),
-                                ],
-                            )
-                            channel.send(commands.SerializeToString())
-                            await asyncio.sleep(0.01)
-
-                    asyncio.ensure_future(send_command())
+                    self.ensure_send_command(channel)
 
                 if channel.label == "service":
-
-                    @channel.on("message")  # type: ignore[misc]
-                    def on_service_message(message: bytes) -> None:
-                        response = ServiceResponse()
-                        response.ParseFromString(message)
-
-                        if response.HasField("connection_status"):
-                            self.connection = response.connection_status
-                            self.connected.set()
-
-                        if response.HasField("error"):
-                            print(f"Received error message: {response.error}")
-
-                    # Ask for Reachy description (id, present parts, etc.)
-                    req = ServiceRequest(
-                        get_reachy=GetReachy(),
-                    )
-                    channel.send(req.SerializeToString())
-                    await self.connected.wait()
-                    self.logger.info(f"Got reachy: {self.connection.reachy}")
-
-                    # Then, Request for state stream update and start sending commands
-                    req = ServiceRequest(
-                        connect=Connect(
-                            reachy_id=self.connection.reachy.id,
-                            update_frequency=100,
-                        )
-                    )
-                    channel.send(req.SerializeToString())
+                    await self.setup_connection(channel)
 
     async def run_consumer(self) -> None:
         await self.signaling.connect()
@@ -127,6 +70,79 @@ class TeleopApp:
 
     async def close(self) -> None:
         await self.signaling.close()
+
+    async def setup_connection(self, channel: RTCDataChannel) -> None:
+        @channel.on("message")  # type: ignore[misc]
+        def on_service_message(message: bytes) -> None:
+            response = ServiceResponse()
+            response.ParseFromString(message)
+
+            if response.HasField("connection_status"):
+                self.connection = response.connection_status
+                self.connected.set()
+
+            if response.HasField("error"):
+                print(f"Received error message: {response.error}")
+
+        # Ask for Reachy description (id, present parts, etc.)
+        req = ServiceRequest(
+            get_reachy=GetReachy(),
+        )
+        channel.send(req.SerializeToString())
+        await self.connected.wait()
+        self.logger.info(f"Got reachy: {self.connection.reachy}")
+
+        # Then, Request for state stream update and start sending commands
+        req = ServiceRequest(
+            connect=Connect(
+                reachy_id=self.connection.reachy.id,
+                update_frequency=100,
+            )
+        )
+        channel.send(req.SerializeToString())
+
+    def handle_state_channel(self, channel: RTCDataChannel) -> None:
+        @channel.on("message")  # type: ignore[misc]
+        def on_message(message: bytes) -> None:
+            reachy_state = ReachyState()
+            reachy_state.ParseFromString(message)
+            self.reachy_state = reachy_state
+
+            self.log["current_t"].append(
+                reachy_state.timestamp.ToDatetime().timestamp()
+            )
+
+            self.log["current_hand"].append(reachy_state.r_hand_state.opening.value)
+
+    def ensure_send_command(self, channel: RTCDataChannel, freq: float = 100) -> None:
+        async def send_command() -> None:
+            while True:
+                target = 0.5 - 0.5 * np.sin(2 * np.pi * 1 * time.time())
+
+                commands = AnyCommands(
+                    commands=[
+                        AnyCommand(
+                            hand_command=HandCommand(
+                                hand_goal=HandPositionRequest(
+                                    id=self.connection.reachy.r_hand.part_id,
+                                    position=HandPosition(
+                                        parallel_gripper=ParallelGripperPosition(
+                                            position=target
+                                        )
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ],
+                )
+                channel.send(commands.SerializeToString())
+
+                self.log["target_t"].append(datetime.datetime.now().timestamp())
+                self.log["target_hand"].append(target)
+
+                await asyncio.sleep(1 / freq)
+
+        asyncio.ensure_future(send_command())
 
 
 def main(args: argparse.Namespace) -> int:  # noqa: C901
