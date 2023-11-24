@@ -7,7 +7,6 @@ import logging
 import sys
 import numpy as np
 import time
-import datetime
 
 
 from reachy2_sdk_api.hand_pb2 import (
