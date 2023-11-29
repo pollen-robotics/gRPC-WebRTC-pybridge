@@ -93,8 +93,14 @@ class GRPCWebRTCBridge:
         pc: aiortc.RTCPeerConnection,
     ) -> ServiceResponse:
         # Create state data channel and start sending state
+        if request.update_frequency >= 1000:
+            max_packet_lifetime = 1
+        else:
+            max_packet_lifetime = (int)(1000 // request.update_frequency)
+
         reachy_state_datachannel = pc.createDataChannel(
-            f"reachy_state_{request.reachy_id.id}"
+            f"reachy_state_{request.reachy_id.id}",
+            maxPacketLifeTime=max_packet_lifetime,
         )
 
         @reachy_state_datachannel.on("open")  # type: ignore[misc]
@@ -112,8 +118,9 @@ class GRPCWebRTCBridge:
             asyncio.ensure_future(send_joint_state())
 
         # Create command data channel and start handling commands
+        # assuming data sent by Unity in the FixedUpdate loop. frequency 50Hz / ev 20ms
         reachy_command_datachannel = pc.createDataChannel(
-            f"reachy_command_{request.reachy_id.id}"
+            f"reachy_command_{request.reachy_id.id}", maxPacketLifeTime=20
         )
 
         @reachy_command_datachannel.on("message")  # type: ignore[misc]
