@@ -1,11 +1,12 @@
-from aiortc import RTCDataChannel
 import argparse
 import asyncio
+import logging
+import sys
+
+from aiortc import RTCDataChannel
 from gst_signalling import GstSession, GstSignallingConsumer
 from gst_signalling.utils import find_producer_peer_id_by_name
-import logging
 from reachy2_sdk_api import reachy_pb2
-import sys
 
 
 def main(args: argparse.Namespace) -> int:  # noqa: C901

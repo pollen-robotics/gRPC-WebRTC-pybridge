@@ -1,29 +1,19 @@
-from aiortc import RTCDataChannel
 import argparse
 import asyncio
-from gst_signalling import GstSession, GstSignallingConsumer
-from gst_signalling.utils import find_producer_peer_id_by_name
 import logging
 import sys
-import numpy as np
 import time
 
-
-from reachy2_sdk_api.hand_pb2 import (
-    HandPosition,
-    HandPositionRequest,
-    ParallelGripperPosition,
-)
+import numpy as np
+from aiortc import RTCDataChannel
+from gst_signalling import GstSession, GstSignallingConsumer
+from gst_signalling.utils import find_producer_peer_id_by_name
+from reachy2_sdk_api.hand_pb2 import (HandPosition, HandPositionRequest,
+                                      ParallelGripperPosition)
 from reachy2_sdk_api.reachy_pb2 import ReachyState
-from reachy2_sdk_api.webrtc_bridge_pb2 import (
-    AnyCommand,
-    AnyCommands,
-    Connect,
-    GetReachy,
-    HandCommand,
-    ServiceRequest,
-    ServiceResponse,
-)
+from reachy2_sdk_api.webrtc_bridge_pb2 import (AnyCommand, AnyCommands,
+                                               Connect, GetReachy, HandCommand,
+                                               ServiceRequest, ServiceResponse)
 
 
 class TeleopApp:

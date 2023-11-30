@@ -1,16 +1,10 @@
-import grpc
 import logging
 from typing import AsyncGenerator
 
+import grpc
 from google.protobuf.empty_pb2 import Empty
-from reachy2_sdk_api import (
-    arm_pb2_grpc,
-    hand_pb2_grpc,
-    head_pb2_grpc,
-    reachy_pb2,
-    reachy_pb2_grpc,
-    webrtc_bridge_pb2,
-)
+from reachy2_sdk_api import (arm_pb2_grpc, hand_pb2_grpc, head_pb2_grpc,
+                             reachy_pb2, reachy_pb2_grpc, webrtc_bridge_pb2)
 
 
 class GRPCClient:

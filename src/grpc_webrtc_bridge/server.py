@@ -5,13 +5,9 @@ import sys
 
 import aiortc
 from gst_signalling import GstSession, GstSignallingProducer
-from reachy2_sdk_api.webrtc_bridge_pb2 import (
-    AnyCommands,
-    Connect,
-    ConnectionStatus,
-    ServiceRequest,
-    ServiceResponse,
-)
+from reachy2_sdk_api.webrtc_bridge_pb2 import (AnyCommands, Connect,
+                                               ConnectionStatus,
+                                               ServiceRequest, ServiceResponse)
 
 from .grpc_client import GRPCClient
 
