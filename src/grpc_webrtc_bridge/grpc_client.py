@@ -1,9 +1,16 @@
 import logging
 from typing import AsyncGenerator
-import grpc
 
+import grpc
 from google.protobuf.empty_pb2 import Empty
-from reachy_sdk_api import any_joint_command_pb2, joint_pb2_grpc, joint_pb2
+from reachy2_sdk_api import (
+    arm_pb2_grpc,
+    hand_pb2_grpc,
+    head_pb2_grpc,
+    reachy_pb2,
+    reachy_pb2_grpc,
+    webrtc_bridge_pb2,
+)
 
 
 class GRPCClient:
@@ -17,38 +24,68 @@ class GRPCClient:
         self.host = host
         self.port = port
 
-        channel = grpc.insecure_channel(f"{host}:{port}")
-        joint_stub = joint_pb2_grpc.JointServiceStub(channel)
-        self.joint_ids = joint_stub.GetAllJointsId(Empty())
+        # Prepare channel for states/commands
+        self.async_channel = grpc.aio.insecure_channel(f"{host}:{port}")
 
-        self.logger.info(
-            f"Connected to grpc {host}:{port} with joints: {self.joint_ids.names}"
-        )
+        self.reachy_stub = reachy_pb2_grpc.ReachyServiceStub(self.async_channel)
+        self.arm_stub = arm_pb2_grpc.ArmServiceStub(self.async_channel)
+        self.hand_stub = hand_pb2_grpc.HandServiceStub(self.async_channel)
+        self.head_stub = head_pb2_grpc.HeadServiceStub(self.async_channel)
 
-        self.channel = grpc.aio.insecure_channel(f"{self.host}:{self.port}")
-        self.joint_stub = joint_pb2_grpc.JointServiceStub(self.channel)
+    # Got Reachy(s) description
+    async def get_reachy(self) -> reachy_pb2.Reachy:
+        return await self.reachy_stub.GetReachy(Empty())
 
-    async def get_state(
+    # Retrieve Reachy entire state
+    async def get_reachy_state(
         self,
-    ) -> AsyncGenerator[joint_pb2.JointsState, None]:
-        stream_req = joint_pb2.StreamJointsRequest(
-            request=joint_pb2.JointsStateRequest(
-                ids=[joint_pb2.JointId(uid=uid) for uid in self.joint_ids.uids],
-                requested_fields=[
-                    joint_pb2.JointField.PRESENT_POSITION,
-                    joint_pb2.JointField.TEMPERATURE,
-                ],
-            ),
-            publish_frequency=100,
+        reachy_id: reachy_pb2.ReachyId,
+        publish_frequency: float,
+    ) -> AsyncGenerator[reachy_pb2.ReachyState, None]:
+        stream_req = reachy_pb2.ReachyStreamStateRequest(
+            id=reachy_id,
+            publish_frequency=publish_frequency,
         )
 
-        async for state in self.joint_stub.StreamJointsState(stream_req):
+        async for state in self.reachy_stub.StreamReachyState(stream_req):
             yield state
 
-    async def send_command(self, message: bytes) -> None:
-        cmd = any_joint_command_pb2.AnyJointsCommand()
-        cmd.ParseFromString(message)
+    # Send Commands (torque and cartesian targets)
+    async def handle_commands(self, commands: webrtc_bridge_pb2.AnyCommands) -> None:
+        self.logger.info(f"Received message: {commands}")
 
-        if cmd.HasField("joints"):
-            joints_command = cmd.joints
-            await self.joint_stub.SendJointsCommands(joints_command)
+        # TODO: Could this be done in parallel?
+        for cmd in commands.commands:
+            if cmd.HasField("arm_command"):
+                await self.handle_arm_command(cmd.arm_command)
+            if cmd.HasField("hand_command"):
+                await self.handle_hand_command(cmd.hand_command)
+            if cmd.HasField("neck_command"):
+                await self.handle_neck_command(cmd.neck_command)
+
+    async def handle_arm_command(self, cmd: webrtc_bridge_pb2.ArmCommand) -> None:
+        # TODO: Could this be done in parallel?
+        if cmd.HasField("arm_cartesian_goal"):
+            await self.arm_stub.GoToCartesianPosition(cmd.arm_cartesian_goal)
+        if cmd.HasField("turn_on"):
+            await self.arm_stub.TurnOn(cmd.turn_on)
+        if cmd.HasField("turn_off"):
+            await self.arm_stub.TurnOff(cmd.turn_off)
+
+    async def handle_hand_command(self, cmd: webrtc_bridge_pb2.HandCommand) -> None:
+        # TODO: Could this be done in parallel?
+        if cmd.HasField("hand_goal"):
+            await self.hand_stub.SetHandPosition(cmd.hand_goal)
+        if cmd.HasField("turn_on"):
+            await self.hand_stub.TurnOn(cmd.turn_on)
+        if cmd.HasField("turn_off"):
+            await self.hand_stub.TurnOff(cmd.turn_off)
+
+    async def handle_neck_command(self, cmd: webrtc_bridge_pb2.NeckCommand) -> None:
+        # TODO: Could this be done in parallel?
+        if cmd.HasField("neck_goal"):
+            await self.head_stub.GoToOrientation(cmd.neck_goal)
+        if cmd.HasField("turn_on"):
+            await self.head_stub.TurnOn(cmd.turn_on)
+        if cmd.HasField("turn_off"):
+            await self.head_stub.TurnOff(cmd.turn_off)

@@ -1,11 +1,12 @@
-from aiortc import RTCDataChannel
 import argparse
 import asyncio
+import logging
+import sys
+
+from aiortc import RTCDataChannel
 from gst_signalling import GstSession, GstSignallingConsumer
 from gst_signalling.utils import find_producer_peer_id_by_name
-import logging
-from reachy_sdk_api import joint_pb2
-import sys
+from reachy2_sdk_api import reachy_pb2
 
 
 def main(args: argparse.Namespace) -> int:  # noqa: C901
@@ -34,13 +35,13 @@ def main(args: argparse.Namespace) -> int:  # noqa: C901
         def on_datachannel(channel: RTCDataChannel) -> None:
             logger.info(f"New data channel: {channel.label}")
 
-            if channel.label == "joint_state":
+            if channel.label == "reachy_state":
 
                 @channel.on("message")  # type: ignore[misc]
                 def on_message(message: bytes) -> None:
-                    joint_state = joint_pb2.JointsState()
-                    joint_state.ParseFromString(message)
-                    print(f"Received message: {joint_state}")
+                    reachy_state = reachy_pb2.ReachyState()
+                    reachy_state.ParseFromString(message)
+                    print(f"Received message: {reachy_state}")
 
     async def run_consumer(consumer: GstSignallingConsumer) -> None:
         await signaling.connect()

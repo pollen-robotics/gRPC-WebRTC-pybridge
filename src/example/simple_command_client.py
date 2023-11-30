@@ -1,13 +1,14 @@
-import aioconsole
 import argparse
 import asyncio
+import logging
+import sys
+
+import aioconsole
+import numpy as np
 from google.protobuf.wrappers_pb2 import FloatValue
 from gst_signalling import GstSession, GstSignallingConsumer
 from gst_signalling.utils import find_producer_peer_id_by_name
-import logging
-import numpy as np
 from reachy_sdk_api import any_joint_command_pb2, joint_pb2
-import sys
 
 
 def main(args: argparse.Namespace) -> int:  # noqa: C901
