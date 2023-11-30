@@ -117,11 +117,7 @@ class TeleopApp:
                             hand_command=HandCommand(
                                 hand_goal=HandPositionRequest(
                                     id=self.connection.reachy.r_hand.part_id,
-                                    position=HandPosition(
-                                        parallel_gripper=ParallelGripperPosition(
-                                            position=target
-                                        )
-                                    ),
+                                    position=HandPosition(parallel_gripper=ParallelGripperPosition(position=target)),
                                 ),
                             ),
                         ),

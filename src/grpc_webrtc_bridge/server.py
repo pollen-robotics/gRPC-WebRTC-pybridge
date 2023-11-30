@@ -70,9 +70,7 @@ class GRPCWebRTCBridge:
         self.logger.info(f"Sending service response message: {resp}")
         return resp
 
-    async def handle_get_reachy_request(
-        self, grpc_client: GRPCClient
-    ) -> ServiceResponse:
+    async def handle_get_reachy_request(self, grpc_client: GRPCClient) -> ServiceResponse:
         reachy = await grpc_client.get_reachy()
 
         resp = ServiceResponse(
@@ -119,9 +117,7 @@ class GRPCWebRTCBridge:
 
         # Create command data channel and start handling commands
         # assuming data sent by Unity in the FixedUpdate loop. frequency 50Hz / ev 20ms
-        reachy_command_datachannel = pc.createDataChannel(
-            f"reachy_command_{request.reachy_id.id}", maxPacketLifeTime=20
-        )
+        reachy_command_datachannel = pc.createDataChannel(f"reachy_command_{request.reachy_id.id}", maxPacketLifeTime=20)
 
         @reachy_command_datachannel.on("message")  # type: ignore[misc]
         async def on_reachy_command_datachannel_message(message: bytes) -> None:
@@ -129,9 +125,7 @@ class GRPCWebRTCBridge:
             commands.ParseFromString(message)
 
             if not commands.commands:
-                self.logger.warning(
-                    "No command or incorrect message received {message}"
-                )
+                self.logger.warning("No command or incorrect message received {message}")
                 return
 
             await grpc_client.handle_commands(commands)
