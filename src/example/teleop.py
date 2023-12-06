@@ -6,13 +6,11 @@ import time
 
 import numpy as np
 from aiortc import RTCDataChannel
+from google.protobuf.wrappers_pb2 import FloatValue
 from gst_signalling import GstSession, GstSignallingConsumer
 from gst_signalling.utils import find_producer_peer_id_by_name
-from reachy2_sdk_api.hand_pb2 import (
-    HandPosition,
-    HandPositionRequest,
-    ParallelGripperPosition,
-)
+from reachy2_sdk_api import orbita2d_pb2, orbita2d_pb2_grpc
+from reachy2_sdk_api.hand_pb2 import HandPosition, HandPositionRequest, ParallelGripperPosition
 from reachy2_sdk_api.reachy_pb2 import ReachyState
 from reachy2_sdk_api.webrtc_bridge_pb2 import (
     AnyCommand,
@@ -42,6 +40,7 @@ class TeleopApp:
         )
 
         self.connected = asyncio.Event()
+        self.data = []
 
         @self.signaling.on("new_session")  # type: ignore[misc]
         def on_new_session(session: GstSession) -> None:
@@ -67,6 +66,11 @@ class TeleopApp:
         await self.signaling.consume()
 
     async def close(self) -> None:
+        data = np.array(self.data)
+        logfile = "pub_webrtc_log.npy"
+        print("Saving data to {} ({})".format(logfile, data.shape))
+        with open(logfile, "wb") as f:
+            np.save(f, data)
         await self.signaling.close()
 
     async def setup_connection(self, channel: RTCDataChannel) -> None:
@@ -108,23 +112,26 @@ class TeleopApp:
 
     def ensure_send_command(self, channel: RTCDataChannel, freq: float = 100) -> None:
         async def send_command() -> None:
-            while True:
-                target = 0.5 - 0.5 * np.sin(2 * np.pi * 1 * time.time())
-
-                commands = AnyCommands(
-                    commands=[
-                        AnyCommand(
-                            hand_command=HandCommand(
-                                hand_goal=HandPositionRequest(
-                                    id=self.connection.reachy.r_hand.part_id,
-                                    position=HandPosition(parallel_gripper=ParallelGripperPosition(position=target)),
-                                ),
+            commands = AnyCommands(
+                commands=[
+                    AnyCommand(
+                        hand_command=HandCommand(
+                            hand_goal=HandPositionRequest(
+                                id=self.connection.reachy.r_hand.part_id,
+                                position=HandPosition(parallel_gripper=ParallelGripperPosition(position=0.0)),
                             ),
                         ),
-                    ],
-                )
-                channel.send(commands.SerializeToString())
+                    ),
+                ],
+            )
+            while True:
+                t = time.time()
+                # target = 0.5 - 0.5 * np.sin(2 * np.pi * 1 * t)
+                target = np.sin(2 * np.pi * 1.0 * t) * 0.1
 
+                commands.commands[0].hand_command.hand_goal.position.parallel_gripper.position = target
+                channel.send(commands.SerializeToString())
+                self.data.append((t, target))
                 await asyncio.sleep(1 / freq)
 
         asyncio.ensure_future(send_command())
