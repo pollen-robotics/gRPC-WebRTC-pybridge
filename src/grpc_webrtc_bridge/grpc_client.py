@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from typing import AsyncGenerator
 
@@ -23,6 +24,10 @@ class GRPCClient:
 
         self.host = host
         self.port = port
+
+        self.q_hand: asyncio.Queue[webrtc_bridge_pb2.HandCommand] = asyncio.Queue(maxsize=100)
+        self.q_arm: asyncio.Queue[webrtc_bridge_pb2.ArmCommand] = asyncio.Queue(maxsize=100)
+        self.q_neck: asyncio.Queue[webrtc_bridge_pb2.NeckCommand] = asyncio.Queue(maxsize=100)
 
         # Prepare channel for states/commands
         self.async_channel = grpc.aio.insecure_channel(f"{host}:{port}")
@@ -57,35 +62,61 @@ class GRPCClient:
         # TODO: Could this be done in parallel?
         for cmd in commands.commands:
             if cmd.HasField("arm_command"):
-                await self.handle_arm_command(cmd.arm_command)
+                # await self.handle_arm_command(cmd.arm_command)
+                await self.q_arm.put(cmd.arm_command)
             if cmd.HasField("hand_command"):
-                await self.handle_hand_command(cmd.hand_command)
+                await self.q_hand.put(cmd.hand_command)
             if cmd.HasField("neck_command"):
-                await self.handle_neck_command(cmd.neck_command)
+                # await self.handle_neck_command(cmd.neck_command)
+                await self.q_neck.put(cmd.neck_command)
 
-    async def handle_arm_command(self, cmd: webrtc_bridge_pb2.ArmCommand) -> None:
-        # TODO: Could this be done in parallel?
-        if cmd.HasField("arm_cartesian_goal"):
-            await self.arm_stub.GoToCartesianPosition(cmd.arm_cartesian_goal)
-        if cmd.HasField("turn_on"):
-            await self.arm_stub.TurnOn(cmd.turn_on)
-        if cmd.HasField("turn_off"):
-            await self.arm_stub.TurnOff(cmd.turn_off)
+    async def consume_hand_command(self) -> None:
+        while True:
+            cmd = await self.q_hand.get()
+            self.logger.warning("send")
+            if cmd.HasField("hand_goal"):
+                await self.hand_stub.SetHandPosition(cmd.hand_goal)
+            if cmd.HasField("turn_on"):
+                await self.hand_stub.TurnOn(cmd.turn_on)
+            if cmd.HasField("turn_off"):
+                await self.hand_stub.TurnOff(cmd.turn_off)
+            self.q_hand.task_done()
 
-    async def handle_hand_command(self, cmd: webrtc_bridge_pb2.HandCommand) -> None:
-        # TODO: Could this be done in parallel?
-        if cmd.HasField("hand_goal"):
-            await self.hand_stub.SetHandPosition(cmd.hand_goal)
-        if cmd.HasField("turn_on"):
-            await self.hand_stub.TurnOn(cmd.turn_on)
-        if cmd.HasField("turn_off"):
-            await self.hand_stub.TurnOff(cmd.turn_off)
+    async def consume_arm_command(self) -> None:
+        while True:
+            cmd = await self.q_arm.get()
+            self.logger.warning("send arm")
+            if cmd.HasField("arm_cartesian_goal"):
+                await self.arm_stub.GoToCartesianPosition(cmd.arm_cartesian_goal)
+            if cmd.HasField("turn_on"):
+                await self.arm_stub.TurnOn(cmd.turn_on)
+            if cmd.HasField("turn_off"):
+                await self.arm_stub.TurnOff(cmd.turn_off)
+            self.q_arm.task_done()
 
-    async def handle_neck_command(self, cmd: webrtc_bridge_pb2.NeckCommand) -> None:
-        # TODO: Could this be done in parallel?
-        if cmd.HasField("neck_goal"):
-            await self.head_stub.GoToOrientation(cmd.neck_goal)
-        if cmd.HasField("turn_on"):
-            await self.head_stub.TurnOn(cmd.turn_on)
-        if cmd.HasField("turn_off"):
-            await self.head_stub.TurnOff(cmd.turn_off)
+    async def consume_neck_command(self) -> None:
+        while True:
+            cmd = await self.q_neck.get()
+            self.logger.warning("send arm")
+            if cmd.HasField("neck_goal"):
+                await self.head_stub.GoToOrientation(cmd.neck_goal)
+            if cmd.HasField("turn_on"):
+                await self.head_stub.TurnOn(cmd.turn_on)
+            if cmd.HasField("turn_off"):
+                await self.head_stub.TurnOff(cmd.turn_off)
+            self.q_neck.task_done()
+
+    def start_consume_commands(self) -> None:
+        self.logger.debug("Create consumers")
+        self.task_consume_hand_commands = asyncio.create_task(self.consume_hand_command())
+        self.task_consume_arm_commands = asyncio.create_task(self.consume_arm_command())
+        self.task_consume_neck_commands = asyncio.create_task(self.consume_neck_command())
+
+    async def stop_consume_commands(self) -> None:
+        self.logger.debug("Close consumers")
+        self.task_consume_hand_commands.cancel()
+        self.task_consume_arm_commands.cancel()
+        self.task_consume_neck_commands.cancel()
+        await self.q_hand.join()
+        await self.q_arm.join()
+        await self.q_neck.join()
