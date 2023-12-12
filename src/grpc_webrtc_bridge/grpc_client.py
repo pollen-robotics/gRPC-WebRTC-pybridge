@@ -62,12 +62,10 @@ class GRPCClient:
         # TODO: Could this be done in parallel?
         for cmd in commands.commands:
             if cmd.HasField("arm_command"):
-                # await self.handle_arm_command(cmd.arm_command)
                 await self.q_arm.put(cmd.arm_command)
             if cmd.HasField("hand_command"):
                 await self.q_hand.put(cmd.hand_command)
             if cmd.HasField("neck_command"):
-                # await self.handle_neck_command(cmd.neck_command)
                 await self.q_neck.put(cmd.neck_command)
 
     async def consume_hand_command(self) -> None:

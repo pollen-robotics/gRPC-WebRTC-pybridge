@@ -131,6 +131,11 @@ class GRPCWebRTCBridge:
 
             await grpc_client.handle_commands(commands)
 
+        @reachy_command_datachannel.on("close")  # type: ignore[misc]
+        async def on_reachy_command_datachannel_close() -> None:
+            logging.info("Commands channel closed.")
+            await grpc_client.stop_consume_commands()
+
         grpc_client.start_consume_commands()
 
         return ServiceResponse()
@@ -138,7 +143,6 @@ class GRPCWebRTCBridge:
     async def handle_disconnect_request(self, grpc_client: GRPCClient) -> ServiceResponse:
         # TODO: implement me
         self.logger.info("Disconnecting...")
-        await grpc_client.stop_consume_commands()
 
         return ServiceResponse()
 
