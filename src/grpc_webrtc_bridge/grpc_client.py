@@ -9,6 +9,8 @@ from reachy2_sdk_api import (
     head_pb2_grpc,
     reachy_pb2,
     reachy_pb2_grpc,
+    mobile_base_utility_pb2_grpc,
+    mobile_base_mobility_pb2_grpc,
     webrtc_bridge_pb2,
 )
 
@@ -31,6 +33,8 @@ class GRPCClient:
         self.arm_stub = arm_pb2_grpc.ArmServiceStub(self.async_channel)
         self.hand_stub = hand_pb2_grpc.HandServiceStub(self.async_channel)
         self.head_stub = head_pb2_grpc.HeadServiceStub(self.async_channel)
+        self.mb_utility_stub = mobile_base_utility_pb2_grpc.MobileBaseUtilityService(self.async_channel)
+        self.mb_mobility_stub = mobile_base_mobility_pb2_grpc.MobileBaseMobilityService(self.async_channel)
 
     # Got Reachy(s) description
     async def get_reachy(self) -> reachy_pb2.Reachy:
@@ -62,6 +66,8 @@ class GRPCClient:
                 await self.handle_hand_command(cmd.hand_command)
             if cmd.HasField("neck_command"):
                 await self.handle_neck_command(cmd.neck_command)
+            if cmd.HasField("mobile_base_command"):
+                await self.handle_mobile_base_command(cmd.mobile_base_command)
 
     async def handle_arm_command(self, cmd: webrtc_bridge_pb2.ArmCommand) -> None:
         # TODO: Could this be done in parallel?
@@ -89,3 +95,10 @@ class GRPCClient:
             await self.head_stub.TurnOn(cmd.turn_on)
         if cmd.HasField("turn_off"):
             await self.head_stub.TurnOff(cmd.turn_off)
+
+    async def handle_mobile_base_command(self, cmd: webrtc_bridge_pb2.MobileBaseCommand) -> None:
+        # TODO: Could this be done in parallel?
+        if cmd.HasField("target_direction"):
+            await self.mb_mobility_stub.SendDirection(cmd.target_direction)
+        if cmd.HasField("mobile_base_mode"):
+            await self.mb_utility_stub.SetZuuuMode(cmd.mobile_base_mode)
