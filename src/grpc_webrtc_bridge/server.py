@@ -66,7 +66,7 @@ class GRPCWebRTCBridge:
             # asyncio.ensure_future(grpc_client.consume_hand_command())
 
         elif request.HasField("disconnect"):
-            resp = await self.handle_disconnect_request(grpc_client)
+            resp = await self.handle_disconnect_request()
 
         self.logger.info(f"Sending service response message: {resp}")
         return resp
@@ -140,7 +140,7 @@ class GRPCWebRTCBridge:
 
         return ServiceResponse()
 
-    async def handle_disconnect_request(self, grpc_client: GRPCClient) -> ServiceResponse:
+    async def handle_disconnect_request(self) -> ServiceResponse:
         # TODO: implement me
         self.logger.info("Disconnecting...")
 
