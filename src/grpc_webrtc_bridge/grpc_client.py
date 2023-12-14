@@ -33,8 +33,8 @@ class GRPCClient:
         self.arm_stub = arm_pb2_grpc.ArmServiceStub(self.async_channel)
         self.hand_stub = hand_pb2_grpc.HandServiceStub(self.async_channel)
         self.head_stub = head_pb2_grpc.HeadServiceStub(self.async_channel)
-        self.mb_utility_stub = mobile_base_utility_pb2_grpc.MobileBaseUtilityService(self.async_channel)
-        self.mb_mobility_stub = mobile_base_mobility_pb2_grpc.MobileBaseMobilityService(self.async_channel)
+        self.mb_utility_stub = mobile_base_utility_pb2_grpc.MobileBaseUtilityServiceStub(self.async_channel)
+        self.mb_mobility_stub = mobile_base_mobility_pb2_grpc.MobileBaseMobilityServiceStub(self.async_channel)
 
     # Got Reachy(s) description
     async def get_reachy(self) -> reachy_pb2.Reachy:
