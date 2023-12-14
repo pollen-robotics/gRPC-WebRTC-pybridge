@@ -58,7 +58,7 @@ class GRPCClient:
 
     # Send Commands (torque and cartesian targets)
     async def handle_commands(self, commands: webrtc_bridge_pb2.AnyCommands) -> None:
-        # self.logger.info(f"Received message: {commands}")
+        self.logger.info(f"Received message: {commands}")
 
         # TODO: Could this be done in parallel?
         for cmd in commands.commands:
@@ -66,7 +66,6 @@ class GRPCClient:
                 await self.q_arm.put(cmd.arm_command)
             if cmd.HasField("hand_command"):
                 if cmd.hand_command.HasField("hand_goal"):
-                    # self.logger.info(f"handgol")
                     await self.q_hand_position.put(cmd.hand_command.hand_goal)
                 else:
                     await self.q_hand.put(cmd.hand_command)
@@ -92,7 +91,6 @@ class GRPCClient:
                 yield hand_position_command
 
         await self.hand_stub.SetHandPositions(hand_position_generator())  # type: ignore[no-untyped-call]
-        # await asyncio.sleep(0.1)
 
     async def consume_arm_command(self) -> None:
         while True:
