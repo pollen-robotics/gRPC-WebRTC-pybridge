@@ -72,7 +72,7 @@ class GRPCClient:
     async def handle_arm_command(self, cmd: webrtc_bridge_pb2.ArmCommand) -> None:
         # TODO: Could this be done in parallel?
         if cmd.HasField("arm_cartesian_goal"):
-            await self.arm_stub.GoToCartesianPosition(cmd.arm_cartesian_goal)
+            await self.arm_stub.SendArmCartesianGoal(cmd.arm_cartesian_goal)
         if cmd.HasField("turn_on"):
             await self.arm_stub.TurnOn(cmd.turn_on)
         if cmd.HasField("turn_off"):
@@ -90,7 +90,7 @@ class GRPCClient:
     async def handle_neck_command(self, cmd: webrtc_bridge_pb2.NeckCommand) -> None:
         # TODO: Could this be done in parallel?
         if cmd.HasField("neck_goal"):
-            await self.head_stub.GoToOrientation(cmd.neck_goal)
+            await self.head_stub.SendNeckJointGoal(cmd.neck_goal)
         if cmd.HasField("turn_on"):
             await self.head_stub.TurnOn(cmd.turn_on)
         if cmd.HasField("turn_off"):
