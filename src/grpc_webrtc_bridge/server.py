@@ -15,6 +15,7 @@ from reachy2_sdk_api.webrtc_bridge_pb2 import (
 
 from .grpc_client import GRPCClient
 
+on_reachy_command_counter = 0
 
 class GRPCWebRTCBridge:
     def __init__(self, args: argparse.Namespace) -> None:
@@ -121,14 +122,19 @@ class GRPCWebRTCBridge:
 
         @reachy_command_datachannel.on("message")  # type: ignore[misc]
         async def on_reachy_command_datachannel_message(message: bytes) -> None:
+            global on_reachy_command_counter
+            on_reachy_command_counter += 1
+
             commands = AnyCommands()
             commands.ParseFromString(message)
 
             if not commands.commands:
-                self.logger.warning("No command or incorrect message received {message}")
+                self.logger.info("No command or incorrect message received {message}")
                 return
 
             await grpc_client.handle_commands(commands)
+            on_reachy_command_counter -= 1
+
 
         return ServiceResponse()
 
@@ -183,6 +189,22 @@ def main() -> int:  # noqa: C901
         logging.basicConfig(level=logging.INFO)
 
     bridge = GRPCWebRTCBridge(args)
+    import time
+    import threading
+    loggy = logging.getLogger(__name__)
+    def print_global_variable():
+        global on_reachy_command_counter
+        while True:
+            loggy.info(f"XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX\n{on_reachy_command_counter}\n")
+            time.sleep(0.5)
+
+
+
+    # Create and start the thread
+    thread = threading.Thread(target=print_global_variable)
+    thread.daemon = True  # This makes the thread terminate when the main program exits
+    thread.start()
+    time.sleep(2)
 
     loop = asyncio.get_event_loop()
     try:
