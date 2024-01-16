@@ -14,8 +14,13 @@ from reachy2_sdk_api.webrtc_bridge_pb2 import (
 )
 
 from .grpc_client import GRPCClient
+from threading import Lock
+import time
+import threading
 
 on_reachy_command_counter = 0
+last_freq_counter = 0
+last_freq_update = time.time()
 
 class GRPCWebRTCBridge:
     def __init__(self, args: argparse.Namespace) -> None:
@@ -26,7 +31,7 @@ class GRPCWebRTCBridge:
             port=args.webrtc_signaling_port,
             name="grpc_webrtc_bridge",
         )
-
+        self.smart_lock = Lock()
         @self.producer.on("new_session")  # type: ignore[misc]
         def on_new_session(session: GstSession) -> None:
             pc = session.pc
@@ -123,6 +128,8 @@ class GRPCWebRTCBridge:
         @reachy_command_datachannel.on("message")  # type: ignore[misc]
         async def on_reachy_command_datachannel_message(message: bytes) -> None:
             global on_reachy_command_counter
+            global last_freq_counter
+            global last_freq_update
             on_reachy_command_counter += 1
 
             commands = AnyCommands()
@@ -132,7 +139,22 @@ class GRPCWebRTCBridge:
                 self.logger.info("No command or incorrect message received {message}")
                 return
 
-            await grpc_client.handle_commands(commands)
+
+            # take lock
+            if self.smart_lock.acquire(blocking=False):
+                last_freq_counter += 1
+                await grpc_client.handle_commands(commands)
+                self.smart_lock.release()
+            else:
+                # self.logger.info("Nevermind, I'll send the next one")
+                pass
+
+
+            # try:
+            #     await asyncio.wait_for(grpc_client.handle_commands(commands), timeout=0.0001)
+            # except asyncio.TimeoutError:
+            #     self.logger.warning("handle_commands timed out")
+
             on_reachy_command_counter -= 1
 
 
@@ -189,13 +211,16 @@ def main() -> int:  # noqa: C901
         logging.basicConfig(level=logging.INFO)
 
     bridge = GRPCWebRTCBridge(args)
-    import time
-    import threading
     loggy = logging.getLogger(__name__)
     def print_global_variable():
         global on_reachy_command_counter
+        global last_freq_counter
+        global last_freq_update
         while True:
-            loggy.info(f"XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX\n{on_reachy_command_counter}\n")
+            now = time.time()
+            loggy.info(f"Freq { last_freq_counter / (now - last_freq_update) } \tReachy command counter {on_reachy_command_counter}\n")
+            last_freq_counter = 0
+            last_freq_update = now
             time.sleep(0.5)
 
 
