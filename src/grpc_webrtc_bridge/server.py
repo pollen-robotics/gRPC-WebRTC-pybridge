@@ -22,6 +22,7 @@ on_reachy_command_counter = 0
 last_freq_counter = 0
 last_freq_update = time.time()
 
+
 class GRPCWebRTCBridge:
     def __init__(self, args: argparse.Namespace) -> None:
         self.logger = logging.getLogger(__name__)
@@ -32,6 +33,7 @@ class GRPCWebRTCBridge:
             name="grpc_webrtc_bridge",
         )
         self.smart_lock = Lock()
+
         @self.producer.on("new_session")  # type: ignore[misc]
         def on_new_session(session: GstSession) -> None:
             pc = session.pc
@@ -139,16 +141,21 @@ class GRPCWebRTCBridge:
                 self.logger.info("No command or incorrect message received {message}")
                 return
 
-
             # take lock
             if self.smart_lock.acquire(blocking=False):
                 last_freq_counter += 1
                 await grpc_client.handle_commands(commands)
+
+                now = time.time()
+                if now - last_freq_update > 1:
+                    self.logger.info(f"Freq {last_freq_counter / (now - last_freq_update)}")
+                    last_freq_counter = 0
+                    last_freq_update = now
+
                 self.smart_lock.release()
             else:
                 # self.logger.info("Nevermind, I'll send the next one")
                 pass
-
 
             # try:
             #     await asyncio.wait_for(grpc_client.handle_commands(commands), timeout=0.0001)
@@ -156,7 +163,6 @@ class GRPCWebRTCBridge:
             #     self.logger.warning("handle_commands timed out")
 
             on_reachy_command_counter -= 1
-
 
         return ServiceResponse()
 
@@ -212,18 +218,14 @@ def main() -> int:  # noqa: C901
 
     bridge = GRPCWebRTCBridge(args)
     loggy = logging.getLogger(__name__)
+
     def print_global_variable():
         global on_reachy_command_counter
         global last_freq_counter
         global last_freq_update
         while True:
-            now = time.time()
-            loggy.info(f"Freq { last_freq_counter / (now - last_freq_update) } \tReachy command counter {on_reachy_command_counter}\n")
-            last_freq_counter = 0
-            last_freq_update = now
+            loggy.info(f"Reachy command counter {on_reachy_command_counter}\n")
             time.sleep(0.5)
-
-
 
     # Create and start the thread
     thread = threading.Thread(target=print_global_variable)
