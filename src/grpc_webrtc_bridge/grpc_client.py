@@ -25,9 +25,11 @@ class GRPCClient:
 
         self.host = host
         self.port = port
-
         # Prepare channel for states/commands
         self.async_channel = grpc.aio.insecure_channel(f"{host}:{port}")
+        # self.async_channelarm = grpc.aio.insecure_channel(f"{host}:{port+1}")
+        # self.async_channelhand = grpc.aio.insecure_channel(f"{host}:{port+2}")
+        # self.async_channel = grpc.aio.insecure_channel(f"{host}:{port}3")
 
         self.reachy_stub = reachy_pb2_grpc.ReachyServiceStub(self.async_channel)
         self.arm_stub = arm_pb2_grpc.ArmServiceStub(self.async_channel)
@@ -56,7 +58,7 @@ class GRPCClient:
 
     # Send Commands (torque and cartesian targets)
     async def handle_commands(self, commands: webrtc_bridge_pb2.AnyCommands) -> None:
-        self.logger.info(f"Received message: {commands}")
+        # self.logger.info(f"Received message: {commands}")
 
         # TODO: Could this be done in parallel?
         for cmd in commands.commands:

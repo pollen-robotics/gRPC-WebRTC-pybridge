@@ -14,6 +14,13 @@ from reachy2_sdk_api.webrtc_bridge_pb2 import (
 )
 
 from .grpc_client import GRPCClient
+from threading import Lock
+import time
+import threading
+
+on_reachy_command_counter = 0
+last_freq_counter = 0
+last_freq_update = time.time()
 
 
 class GRPCWebRTCBridge:
@@ -25,6 +32,7 @@ class GRPCWebRTCBridge:
             port=args.webrtc_signaling_port,
             name="grpc_webrtc_bridge",
         )
+        self.smart_lock = Lock()
 
         @self.producer.on("new_session")  # type: ignore[misc]
         def on_new_session(session: GstSession) -> None:
@@ -121,14 +129,40 @@ class GRPCWebRTCBridge:
 
         @reachy_command_datachannel.on("message")  # type: ignore[misc]
         async def on_reachy_command_datachannel_message(message: bytes) -> None:
+            global on_reachy_command_counter
+            global last_freq_counter
+            global last_freq_update
+            on_reachy_command_counter += 1
+
             commands = AnyCommands()
             commands.ParseFromString(message)
 
             if not commands.commands:
-                self.logger.warning("No command or incorrect message received {message}")
+                self.logger.info("No command or incorrect message received {message}")
                 return
 
-            await grpc_client.handle_commands(commands)
+            # take lock
+            if self.smart_lock.acquire(blocking=False):
+                last_freq_counter += 1
+                await grpc_client.handle_commands(commands)
+
+                now = time.time()
+                if now - last_freq_update > 1:
+                    self.logger.info(f"Freq {last_freq_counter / (now - last_freq_update)}")
+                    last_freq_counter = 0
+                    last_freq_update = now
+
+                self.smart_lock.release()
+            else:
+                # self.logger.info("Nevermind, I'll send the next one")
+                pass
+
+            # try:
+            #     await asyncio.wait_for(grpc_client.handle_commands(commands), timeout=0.0001)
+            # except asyncio.TimeoutError:
+            #     self.logger.warning("handle_commands timed out")
+
+            on_reachy_command_counter -= 1
 
         return ServiceResponse()
 
@@ -183,6 +217,21 @@ def main() -> int:  # noqa: C901
         logging.basicConfig(level=logging.INFO)
 
     bridge = GRPCWebRTCBridge(args)
+    loggy = logging.getLogger(__name__)
+
+    def print_global_variable():
+        global on_reachy_command_counter
+        global last_freq_counter
+        global last_freq_update
+        while True:
+            loggy.info(f"Reachy command counter {on_reachy_command_counter}\n")
+            time.sleep(0.5)
+
+    # Create and start the thread
+    thread = threading.Thread(target=print_global_variable)
+    thread.daemon = True  # This makes the thread terminate when the main program exits
+    thread.start()
+    time.sleep(2)
 
     loop = asyncio.get_event_loop()
     try:
