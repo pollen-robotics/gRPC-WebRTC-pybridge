@@ -21,6 +21,10 @@ import threading
 on_reachy_command_counter = 0
 last_freq_counter = 0
 last_freq_update = time.time()
+last_drop_counter = 0
+freq_rates = []
+drop_rates = []
+init = False
 
 
 class GRPCWebRTCBridge:
@@ -132,6 +136,10 @@ class GRPCWebRTCBridge:
             global on_reachy_command_counter
             global last_freq_counter
             global last_freq_update
+            global last_drop_counter
+            global freq_rates
+            global drop_rates
+            global init
             on_reachy_command_counter += 1
 
             commands = AnyCommands()
@@ -148,13 +156,33 @@ class GRPCWebRTCBridge:
 
                 now = time.time()
                 if now - last_freq_update > 1:
-                    self.logger.info(f"Freq {last_freq_counter / (now - last_freq_update)}")
+                    current_freq_rate = int(last_freq_counter / (now - last_freq_update))
+                    current_drop_rate = int(last_drop_counter / (now - last_freq_update))
+
+                    self.logger.info(
+                        f"Freq {current_freq_rate} Hz\tDrop {current_drop_rate} Hz"
+                    )
+
+                    if init:
+                        freq_rates.append(current_freq_rate)
+                        drop_rates.append(current_drop_rate)
+                        mean_freq_rate = sum(freq_rates) / len(freq_rates)
+                        mean_drop_rate = sum(drop_rates) / len(drop_rates)
+                        self.logger.info(
+                            f"[MEAN] Freq {mean_freq_rate} Hz\tDrop {mean_drop_rate} Hz"
+                        )
+                    else:
+                        init = True
+                    # Calculate mean values
+
                     last_freq_counter = 0
+                    last_drop_counter = 0
                     last_freq_update = now
 
                 self.smart_lock.release()
             else:
                 # self.logger.info("Nevermind, I'll send the next one")
+                last_drop_counter += 1
                 pass
 
             # try:
@@ -228,9 +256,9 @@ def main() -> int:  # noqa: C901
             time.sleep(0.5)
 
     # Create and start the thread
-    thread = threading.Thread(target=print_global_variable)
-    thread.daemon = True  # This makes the thread terminate when the main program exits
-    thread.start()
+    # thread = threading.Thread(target=print_global_variable)
+    # thread.daemon = True  # This makes the thread terminate when the main program exits
+    # thread.start()
     time.sleep(2)
 
     loop = asyncio.get_event_loop()
