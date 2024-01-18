@@ -166,6 +166,9 @@ class GRPCWebRTCBridge:
                     if init:
                         freq_rates.append(current_freq_rate)
                         drop_rates.append(current_drop_rate)
+                        if len(freq_rates) > 10000:
+                            freq_rates.pop(0)
+                            drop_rates.pop(0)
                         mean_freq_rate = sum(freq_rates) / len(freq_rates)
                         mean_drop_rate = sum(drop_rates) / len(drop_rates)
                         self.logger.info(
