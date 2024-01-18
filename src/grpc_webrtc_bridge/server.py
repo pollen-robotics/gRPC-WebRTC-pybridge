@@ -14,7 +14,7 @@ from reachy2_sdk_api.webrtc_bridge_pb2 import (
 )
 
 from .grpc_client import GRPCClient
-from threading import Lock
+from threading import Lock, Semaphore
 import time
 import threading
 
@@ -37,6 +37,7 @@ class GRPCWebRTCBridge:
             name="grpc_webrtc_bridge",
         )
         self.smart_lock = Lock()
+        self.smart_lock = Semaphore(10)
 
         @self.producer.on("new_session")  # type: ignore[misc]
         def on_new_session(session: GstSession) -> None:
