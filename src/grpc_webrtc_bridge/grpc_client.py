@@ -39,7 +39,9 @@ class GRPCClient:
         self.mb_mobility_stub = mobile_base_mobility_pb2_grpc.MobileBaseMobilityServiceStub(self.async_channel)
 
     # Got Reachy(s) description
-    async def get_reachy(self) -> reachy_pb2.Reachy:
+    async def get_reachy(
+        self,
+    ) -> reachy_pb2.Reachy:
         return await self.reachy_stub.GetReachy(Empty())
 
     # Retrieve Reachy entire state
@@ -57,7 +59,10 @@ class GRPCClient:
             yield state
 
     # Send Commands (torque and cartesian targets)
-    async def handle_commands(self, commands: webrtc_bridge_pb2.AnyCommands) -> None:
+    async def handle_commands(
+        self,
+        commands: webrtc_bridge_pb2.AnyCommands,
+    ) -> None:
         # self.logger.info(f"Received message: {commands}")
 
         # TODO: Could this be done in parallel?
@@ -98,7 +103,10 @@ class GRPCClient:
         if cmd.HasField("turn_off"):
             await self.head_stub.TurnOff(cmd.turn_off)
 
-    async def handle_mobile_base_command(self, cmd: webrtc_bridge_pb2.MobileBaseCommand) -> None:
+    async def handle_mobile_base_command(
+        self,
+        cmd: webrtc_bridge_pb2.MobileBaseCommand,
+    ) -> None:
         # TODO: Could this be done in parallel?
         if cmd.HasField("target_direction"):
             await self.mb_mobility_stub.SendDirection(cmd.target_direction)

@@ -2,6 +2,8 @@ import argparse
 import asyncio
 import logging
 import sys
+import time
+from threading import Semaphore
 
 import aiortc
 from gst_signalling import GstSession, GstSignallingProducer
@@ -14,9 +16,6 @@ from reachy2_sdk_api.webrtc_bridge_pb2 import (
 )
 
 from .grpc_client import GRPCClient
-from threading import Lock, Semaphore
-import time
-import threading
 
 on_reachy_command_counter = 0
 last_freq_counter = 0
@@ -36,7 +35,7 @@ class GRPCWebRTCBridge:
             port=args.webrtc_signaling_port,
             name="grpc_webrtc_bridge",
         )
-        self.smart_lock = Lock()
+        # self.smart_lock = Lock()
         self.smart_lock = Semaphore(10)
 
         @self.producer.on("new_session")  # type: ignore[misc]
@@ -97,7 +96,7 @@ class GRPCWebRTCBridge:
 
         return resp
 
-    async def handle_connect_request(
+    async def handle_connect_request(  # noqa: C901
         self,
         request: Connect,
         grpc_client: GRPCClient,
@@ -133,7 +132,9 @@ class GRPCWebRTCBridge:
         reachy_command_datachannel = pc.createDataChannel(f"reachy_command_{request.reachy_id.id}", maxPacketLifeTime=20)
 
         @reachy_command_datachannel.on("message")  # type: ignore[misc]
-        async def on_reachy_command_datachannel_message(message: bytes) -> None:
+        async def on_reachy_command_datachannel_message(
+            message: bytes,
+        ) -> None:
             global on_reachy_command_counter
             global last_freq_counter
             global last_freq_update
@@ -160,9 +161,7 @@ class GRPCWebRTCBridge:
                     current_freq_rate = int(last_freq_counter / (now - last_freq_update))
                     current_drop_rate = int(last_drop_counter / (now - last_freq_update))
 
-                    self.logger.info(
-                        f"Freq {current_freq_rate} Hz\tDrop {current_drop_rate} Hz"
-                    )
+                    self.logger.info(f"Freq {current_freq_rate} Hz\tDrop {current_drop_rate} Hz")
 
                     if init:
                         freq_rates.append(current_freq_rate)
@@ -172,9 +171,7 @@ class GRPCWebRTCBridge:
                             drop_rates.pop(0)
                         mean_freq_rate = sum(freq_rates) / len(freq_rates)
                         mean_drop_rate = sum(drop_rates) / len(drop_rates)
-                        self.logger.info(
-                            f"[MEAN] Freq {mean_freq_rate} Hz\tDrop {mean_drop_rate} Hz"
-                        )
+                        self.logger.info(f"[MEAN] Freq {mean_freq_rate} Hz\tDrop {mean_drop_rate} Hz")
                     else:
                         init = True
                     # Calculate mean values
@@ -249,15 +246,15 @@ def main() -> int:  # noqa: C901
         logging.basicConfig(level=logging.INFO)
 
     bridge = GRPCWebRTCBridge(args)
-    loggy = logging.getLogger(__name__)
+    # loggy = logging.getLogger(__name__)
 
-    def print_global_variable():
-        global on_reachy_command_counter
-        global last_freq_counter
-        global last_freq_update
-        while True:
-            loggy.info(f"Reachy command counter {on_reachy_command_counter}\n")
-            time.sleep(0.5)
+    # def print_global_variable():
+    #     global on_reachy_command_counter
+    #     global last_freq_counter
+    #     global last_freq_update
+    #     while True:
+    #         loggy.info(f"Reachy command counter {on_reachy_command_counter}\n")
+    #         time.sleep(0.5)
 
     # Create and start the thread
     # thread = threading.Thread(target=print_global_variable)
