@@ -2,6 +2,8 @@ import argparse
 import asyncio
 import logging
 import sys
+import time
+from threading import Semaphore
 
 import aiortc
 from gst_signalling import GstSession, GstSignallingProducer
@@ -15,6 +17,13 @@ from reachy2_sdk_api.webrtc_bridge_pb2 import (
 
 from .grpc_client import GRPCClient
 
+last_freq_counter = 0
+last_freq_update = time.time()
+last_drop_counter = 0
+freq_rates = []
+drop_rates = []
+init = False
+
 
 class GRPCWebRTCBridge:
     def __init__(self, args: argparse.Namespace) -> None:
@@ -25,6 +34,8 @@ class GRPCWebRTCBridge:
             port=args.webrtc_signaling_port,
             name="grpc_webrtc_bridge",
         )
+        # self.smart_lock = Lock()
+        self.smart_lock = Semaphore(10)
 
         @self.producer.on("new_session")  # type: ignore[misc]
         def on_new_session(session: GstSession) -> None:
@@ -84,7 +95,7 @@ class GRPCWebRTCBridge:
 
         return resp
 
-    async def handle_connect_request(
+    async def handle_connect_request(  # noqa: C901
         self,
         request: Connect,
         grpc_client: GRPCClient,
@@ -120,15 +131,56 @@ class GRPCWebRTCBridge:
         reachy_command_datachannel = pc.createDataChannel(f"reachy_command_{request.reachy_id.id}", maxPacketLifeTime=20)
 
         @reachy_command_datachannel.on("message")  # type: ignore[misc]
-        async def on_reachy_command_datachannel_message(message: bytes) -> None:
+        async def on_reachy_command_datachannel_message(
+            message: bytes,
+        ) -> None:
+            global last_freq_counter
+            global last_freq_update
+            global last_drop_counter
+            global freq_rates
+            global drop_rates
+            global init
+
             commands = AnyCommands()
             commands.ParseFromString(message)
 
             if not commands.commands:
-                self.logger.warning("No command or incorrect message received {message}")
+                self.logger.info("No command or incorrect message received {message}")
                 return
 
-            await grpc_client.handle_commands(commands)
+            # take lock
+            if self.smart_lock.acquire(blocking=False):
+                last_freq_counter += 1
+                await grpc_client.handle_commands(commands)
+
+                now = time.time()
+                if now - last_freq_update > 1:
+                    current_freq_rate = int(last_freq_counter / (now - last_freq_update))
+                    current_drop_rate = int(last_drop_counter / (now - last_freq_update))
+
+                    self.logger.info(f"Freq {current_freq_rate} Hz\tDrop {current_drop_rate} Hz")
+
+                    if init:
+                        freq_rates.append(current_freq_rate)
+                        drop_rates.append(current_drop_rate)
+                        if len(freq_rates) > 10000:
+                            freq_rates.pop(0)
+                            drop_rates.pop(0)
+                        mean_freq_rate = sum(freq_rates) / len(freq_rates)
+                        mean_drop_rate = sum(drop_rates) / len(drop_rates)
+                        self.logger.info(f"[MEAN] Freq {mean_freq_rate} Hz\tDrop {mean_drop_rate} Hz")
+                    else:
+                        init = True
+                    # Calculate mean values
+
+                    last_freq_counter = 0
+                    last_drop_counter = 0
+                    last_freq_update = now
+
+                self.smart_lock.release()
+            else:
+                # self.logger.info("Nevermind, I'll send the next one")
+                last_drop_counter += 1
 
         return ServiceResponse()
 
@@ -183,6 +235,8 @@ def main() -> int:  # noqa: C901
         logging.basicConfig(level=logging.INFO)
 
     bridge = GRPCWebRTCBridge(args)
+
+    time.sleep(2)
 
     loop = asyncio.get_event_loop()
     try:

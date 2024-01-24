@@ -25,7 +25,6 @@ class GRPCClient:
 
         self.host = host
         self.port = port
-
         # Prepare channel for states/commands
         self.async_channel = grpc.aio.insecure_channel(f"{host}:{port}")
 
@@ -55,8 +54,11 @@ class GRPCClient:
             yield state
 
     # Send Commands (torque and cartesian targets)
-    async def handle_commands(self, commands: webrtc_bridge_pb2.AnyCommands) -> None:
-        self.logger.info(f"Received message: {commands}")
+    async def handle_commands(
+        self,
+        commands: webrtc_bridge_pb2.AnyCommands,
+    ) -> None:
+        # self.logger.info(f"Received message: {commands}")
 
         # TODO: Could this be done in parallel?
         for cmd in commands.commands:
@@ -72,7 +74,7 @@ class GRPCClient:
     async def handle_arm_command(self, cmd: webrtc_bridge_pb2.ArmCommand) -> None:
         # TODO: Could this be done in parallel?
         if cmd.HasField("arm_cartesian_goal"):
-            await self.arm_stub.GoToCartesianPosition(cmd.arm_cartesian_goal)
+            await self.arm_stub.SendArmCartesianGoal(cmd.arm_cartesian_goal)
         if cmd.HasField("turn_on"):
             await self.arm_stub.TurnOn(cmd.turn_on)
         if cmd.HasField("turn_off"):
@@ -90,7 +92,7 @@ class GRPCClient:
     async def handle_neck_command(self, cmd: webrtc_bridge_pb2.NeckCommand) -> None:
         # TODO: Could this be done in parallel?
         if cmd.HasField("neck_goal"):
-            await self.head_stub.GoToOrientation(cmd.neck_goal)
+            await self.head_stub.SendNeckJointGoal(cmd.neck_goal)
         if cmd.HasField("turn_on"):
             await self.head_stub.TurnOn(cmd.turn_on)
         if cmd.HasField("turn_off"):
