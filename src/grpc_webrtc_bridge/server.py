@@ -7,17 +7,10 @@ from threading import Semaphore
 
 import aiortc
 from gst_signalling import GstSession, GstSignallingProducer
-from reachy2_sdk_api.webrtc_bridge_pb2 import (
-    AnyCommands,
-    Connect,
-    ConnectionStatus,
-    ServiceRequest,
-    ServiceResponse,
-)
+from reachy2_sdk_api.webrtc_bridge_pb2 import AnyCommands, Connect, ConnectionStatus, ServiceRequest, ServiceResponse
 
 from .grpc_client import GRPCClient
 
-on_reachy_command_counter = 0
 last_freq_counter = 0
 last_freq_update = time.time()
 last_drop_counter = 0
@@ -135,14 +128,12 @@ class GRPCWebRTCBridge:
         async def on_reachy_command_datachannel_message(
             message: bytes,
         ) -> None:
-            global on_reachy_command_counter
             global last_freq_counter
             global last_freq_update
             global last_drop_counter
             global freq_rates
             global drop_rates
             global init
-            on_reachy_command_counter += 1
 
             commands = AnyCommands()
             commands.ParseFromString(message)
@@ -184,14 +175,6 @@ class GRPCWebRTCBridge:
             else:
                 # self.logger.info("Nevermind, I'll send the next one")
                 last_drop_counter += 1
-                pass
-
-            # try:
-            #     await asyncio.wait_for(grpc_client.handle_commands(commands), timeout=0.0001)
-            # except asyncio.TimeoutError:
-            #     self.logger.warning("handle_commands timed out")
-
-            on_reachy_command_counter -= 1
 
         return ServiceResponse()
 
@@ -246,20 +229,7 @@ def main() -> int:  # noqa: C901
         logging.basicConfig(level=logging.INFO)
 
     bridge = GRPCWebRTCBridge(args)
-    # loggy = logging.getLogger(__name__)
 
-    # def print_global_variable():
-    #     global on_reachy_command_counter
-    #     global last_freq_counter
-    #     global last_freq_update
-    #     while True:
-    #         loggy.info(f"Reachy command counter {on_reachy_command_counter}\n")
-    #         time.sleep(0.5)
-
-    # Create and start the thread
-    # thread = threading.Thread(target=print_global_variable)
-    # thread.daemon = True  # This makes the thread terminate when the main program exits
-    # thread.start()
     time.sleep(2)
 
     loop = asyncio.get_event_loop()

@@ -27,9 +27,6 @@ class GRPCClient:
         self.port = port
         # Prepare channel for states/commands
         self.async_channel = grpc.aio.insecure_channel(f"{host}:{port}")
-        # self.async_channelarm = grpc.aio.insecure_channel(f"{host}:{port+1}")
-        # self.async_channelhand = grpc.aio.insecure_channel(f"{host}:{port+2}")
-        # self.async_channel = grpc.aio.insecure_channel(f"{host}:{port}3")
 
         self.reachy_stub = reachy_pb2_grpc.ReachyServiceStub(self.async_channel)
         self.arm_stub = arm_pb2_grpc.ArmServiceStub(self.async_channel)
@@ -39,9 +36,7 @@ class GRPCClient:
         self.mb_mobility_stub = mobile_base_mobility_pb2_grpc.MobileBaseMobilityServiceStub(self.async_channel)
 
     # Got Reachy(s) description
-    async def get_reachy(
-        self,
-    ) -> reachy_pb2.Reachy:
+    async def get_reachy(self) -> reachy_pb2.Reachy:
         return await self.reachy_stub.GetReachy(Empty())
 
     # Retrieve Reachy entire state
@@ -103,10 +98,7 @@ class GRPCClient:
         if cmd.HasField("turn_off"):
             await self.head_stub.TurnOff(cmd.turn_off)
 
-    async def handle_mobile_base_command(
-        self,
-        cmd: webrtc_bridge_pb2.MobileBaseCommand,
-    ) -> None:
+    async def handle_mobile_base_command(self, cmd: webrtc_bridge_pb2.MobileBaseCommand) -> None:
         # TODO: Could this be done in parallel?
         if cmd.HasField("target_direction"):
             await self.mb_mobility_stub.SendDirection(cmd.target_direction)
