@@ -3,6 +3,7 @@ from typing import AsyncGenerator
 
 import grpc
 from google.protobuf.empty_pb2 import Empty
+from grpc import experimental
 from reachy2_sdk_api import (
     arm_pb2_grpc,
     hand_pb2_grpc,
@@ -26,7 +27,8 @@ class GRPCClient:
         self.host = host
         self.port = port
         # Prepare channel for states/commands
-        self.async_channel = grpc.aio.insecure_channel(f"{host}:{port}")
+        channel_options = [(experimental.ChannelOptions.SingleThreadedUnaryStream, 0)]
+        self.async_channel = grpc.aio.insecure_channel(f"{host}:{port}", options=channel_options)
 
         self.reachy_stub = reachy_pb2_grpc.ReachyServiceStub(self.async_channel)
         self.arm_stub = arm_pb2_grpc.ArmServiceStub(self.async_channel)

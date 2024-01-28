@@ -4,7 +4,7 @@ import logging
 import os
 import sys
 import time
-from threading import Semaphore
+from threading import Lock, Semaphore
 
 import gi
 from gst_signalling import GstSignallingProducer
@@ -40,8 +40,8 @@ class GRPCWebRTCBridge:
             port=args.webrtc_signaling_port,
             name="grpc_webrtc_bridge",
         )
-        # self.smart_lock = Lock()
-        self.smart_lock = Semaphore(10)
+        self.smart_lock = Lock()
+        # self.smart_lock = Semaphore(10)
 
         @self.producer.on("new_session")  # type: ignore[misc]
         def on_new_session(session: GstSession) -> None:
@@ -164,7 +164,7 @@ class GRPCWebRTCBridge:
             # self.producer._asyncloop.run_until_complete(grpc_client.handle_commands(commands))
             future = asyncio.run_coroutine_threadsafe(grpc_client.handle_commands(commands), self.producer._asyncloop)
             try:
-                result = future.result(timeout=0.5)
+                _ = future.result(timeout=0.5)
             except TimeoutError:
                 self.logger.warning("The coroutine took too long, cancelling the task...")
                 future.cancel()
@@ -197,7 +197,7 @@ class GRPCWebRTCBridge:
 
             self.smart_lock.release()
         else:
-            # self.logger.info("Nevermind, I'll send the next one")
+            self.logger.info("Nevermind, I'll send the next one")
             last_drop_counter += 1
 
     async def handle_connect_request(self, request: Connect, grpc_client: GRPCClient, pc) -> ServiceResponse:  # type: ignore[no-untyped-def]
