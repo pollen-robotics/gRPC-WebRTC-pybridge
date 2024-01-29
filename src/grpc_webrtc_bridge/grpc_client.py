@@ -27,7 +27,7 @@ class GRPCClient:
         self.host = host
         self.port = port
         # Prepare channel for states/commands
-        channel_options = [(experimental.ChannelOptions.SingleThreadedUnaryStream, 0)]
+        channel_options = [(experimental.ChannelOptions.SingleThreadedUnaryStream, 1)]
         self.async_channel = grpc.aio.insecure_channel(f"{host}:{port}", options=channel_options)
 
         self.reachy_stub = reachy_pb2_grpc.ReachyServiceStub(self.async_channel)

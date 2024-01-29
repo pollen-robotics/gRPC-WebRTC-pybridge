@@ -40,8 +40,8 @@ class GRPCWebRTCBridge:
             port=args.webrtc_signaling_port,
             name="grpc_webrtc_bridge",
         )
-        self.smart_lock = Lock()
-        # self.smart_lock = Semaphore(10)
+        # self.smart_lock = Lock()
+        self.smart_lock = Semaphore(10)
 
         @self.producer.on("new_session")  # type: ignore[misc]
         def on_new_session(session: GstSession) -> None:
@@ -161,10 +161,9 @@ class GRPCWebRTCBridge:
         if self.smart_lock.acquire(blocking=False):
             last_freq_counter += 1
             # await grpc_client.handle_commands(commands)
-            # self.producer._asyncloop.run_until_complete(grpc_client.handle_commands(commands))
             future = asyncio.run_coroutine_threadsafe(grpc_client.handle_commands(commands), self.producer._asyncloop)
             try:
-                _ = future.result(timeout=0.5)
+                _ = future.result(timeout=0.1)
             except TimeoutError:
                 self.logger.warning("The coroutine took too long, cancelling the task...")
                 future.cancel()
@@ -187,6 +186,11 @@ class GRPCWebRTCBridge:
                     mean_freq_rate = sum(freq_rates) / len(freq_rates)
                     mean_drop_rate = sum(drop_rates) / len(drop_rates)
                     self.logger.info(f"[MEAN] Freq {mean_freq_rate} Hz\tDrop {mean_drop_rate} Hz")
+                    self.logger.info(f'buffered {data_channel.get_property("buffered-amount")}')
+                    self.logger.info(f'maxlife {data_channel.get_property("max-packet-lifetime")}')
+                    self.logger.info(f'maxret {data_channel.get_property("max-retransmits")}')
+                    self.logger.info(f'prio {data_channel.get_property("priority")}')
+                    self.logger.info(f'proto {data_channel.get_property("protocol")}')
                 else:
                     init = True
                 # Calculate mean values
@@ -238,9 +242,12 @@ class GRPCWebRTCBridge:
 
         channel_options = Gst.Structure.new_empty("application/x-data-channel")
         channel_options.set_value("max-packet-lifetime", 20)
+        channel_options.set_value("priority", 4)
         reachy_command_datachannel = pc.emit("create-data-channel", f"reachy_command_{request.reachy_id.id}", channel_options)
         if reachy_command_datachannel:
             # reachy_command_datachannel.connect("on-open", self.on_open_command_channel)
+            # reachy_command_datachannel.set_property("priority", 4)
+            # reachy_command_datachannel.set_property("protocol", "UDP")
             reachy_command_datachannel.connect("on-message-data", self.on_reachy_command_datachannel_message, grpc_client)
         else:
             self.logger.error("Failed to create data channel command")
