@@ -142,21 +142,22 @@ class GRPCWebRTCBridge:
             self.logger.info("No command or incorrect message received {message}")
             return
 
-        # take lock
+        # take lock. To removed gstreamer callback is not re-entrant
         if self.smart_lock.acquire(blocking=False):
             last_freq_counter += 1
 
-            # ignoring the return value to reach high frequencies ()> 1000Hz)
-            _ = asyncio.run_coroutine_threadsafe(grpc_client.handle_commands(commands), self.producer._asyncloop)
-            """
+            # ignore the return value to reach high frequencies > 1000Hz), and comment the try catch
+            # if we need to do this a better way would be to have a buffer and manually drop late messages
+            future = asyncio.run_coroutine_threadsafe(grpc_client.handle_commands(commands), self.producer._asyncloop)
+
             try:
-                _ = future.result(timeout=0.002) # future is return of asyncio
+                _ = future.result(timeout=0.005)
             except TimeoutError:
                 self.logger.warning("The coroutine took too long, cancelling the task...")
                 future.cancel()
             except Exception as exc:
                 self.logger.error(f"The coroutine raised an exception: {exc!r}")
-            """
+
             now = time.time()
             if now - last_freq_update > 1:
                 current_freq_rate = int(last_freq_counter / (now - last_freq_update))
@@ -173,11 +174,6 @@ class GRPCWebRTCBridge:
                     mean_freq_rate = sum(freq_rates) / len(freq_rates)
                     mean_drop_rate = sum(drop_rates) / len(drop_rates)
                     self.logger.info(f"[MEAN] Freq {mean_freq_rate} Hz\tDrop {mean_drop_rate} Hz")
-                    self.logger.info(f'buffered {data_channel.get_property("buffered-amount")}')
-                    self.logger.info(f'maxlife {data_channel.get_property("max-packet-lifetime")}')
-                    self.logger.info(f'maxret {data_channel.get_property("max-retransmits")}')
-                    self.logger.info(f'prio {data_channel.get_property("priority")}')
-                    self.logger.info(f'proto {data_channel.get_property("protocol")}')
                 else:
                     init = True
                 # Calculate mean values
@@ -207,7 +203,7 @@ class GRPCWebRTCBridge:
             self.logger.error("Failed to create data channel state")
 
         channel_options = Gst.Structure.new_empty("application/x-data-channel")
-        channel_options.set_value("max-retransmits", 0)  # no need to resend commands they'll be outdated
+        channel_options.set_value("max-packet-lifetime", 20)  # Unity sending frequency minimum 50Hz in fixed updated
         channel_options.set_value("priority", GstWebRTC.WebRTCPriorityType.HIGH)
         reachy_command_datachannel = pc.emit("create-data-channel", f"reachy_command_{request.reachy_id.id}", channel_options)
         if reachy_command_datachannel:
