@@ -86,16 +86,19 @@ class GRPCWebRTCBridge:
         if request.HasField("get_reachy"):
             resp = await self.handle_get_reachy_request(grpc_client)
 
+            self.logger.info(f"Sending service response message: {resp}")
+            byte_data = resp.SerializeToString()
+            gbyte_data = GLib.Bytes.new(byte_data)
+            data_channel.send_data(gbyte_data)
+
         elif request.HasField("connect"):
             resp = await self.handle_connect_request(request.connect, grpc_client, pc)
 
         elif request.HasField("disconnect"):
             resp = await self.handle_disconnect_request()
 
-        self.logger.info(f"Sending service response message: {resp}")
-        byte_data = resp.SerializeToString()
-        gbyte_data = GLib.Bytes.new(byte_data)
-        data_channel.send_data(gbyte_data)
+
+
 
     async def handle_get_reachy_request(self, grpc_client: GRPCClient) -> ServiceResponse:
         reachy = await grpc_client.get_reachy()
@@ -151,7 +154,7 @@ class GRPCWebRTCBridge:
             future = asyncio.run_coroutine_threadsafe(grpc_client.handle_commands(commands), self.producer._asyncloop)
 
             try:
-                _ = future.result(timeout=0.005)
+                _ = future.result(timeout=1)
             except TimeoutError:
                 self.logger.warning("The coroutine took too long, cancelling the task...")
                 future.cancel()
@@ -198,7 +201,7 @@ class GRPCWebRTCBridge:
         channel_options.set_value("max-packet-lifetime", max_packet_lifetime)
         data_channel_state = pc.emit("create-data-channel", f"reachy_state_{request.reachy_id.id}", channel_options)
         if data_channel_state:
-            data_channel_state.connect("on-open", self.on_open_state_channel)
+            data_channel_state.connect("on-open", self.on_open_state_channel, request, grpc_client)
         else:
             self.logger.error("Failed to create data channel state")
 
