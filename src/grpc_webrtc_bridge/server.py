@@ -97,9 +97,6 @@ class GRPCWebRTCBridge:
         elif request.HasField("disconnect"):
             resp = await self.handle_disconnect_request()
 
-
-
-
     async def handle_get_reachy_request(self, grpc_client: GRPCClient) -> ServiceResponse:
         reachy = await grpc_client.get_reachy()
 
