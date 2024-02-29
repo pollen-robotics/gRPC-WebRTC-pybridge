@@ -3,7 +3,6 @@ from typing import AsyncGenerator
 
 import grpc
 from google.protobuf.empty_pb2 import Empty
-from grpc import experimental
 from reachy2_sdk_api import (
     arm_pb2_grpc,
     hand_pb2_grpc,
@@ -27,8 +26,7 @@ class GRPCClient:
         self.host = host
         self.port = port
         # Prepare channel for states/commands
-        channel_options = [(experimental.ChannelOptions.SingleThreadedUnaryStream, 1)]
-        self.async_channel = grpc.aio.insecure_channel(f"{host}:{port}", options=channel_options)
+        self.async_channel = grpc.aio.insecure_channel(f"{host}:{port}")
 
         self.reachy_stub = reachy_pb2_grpc.ReachyServiceStub(self.async_channel)
         self.arm_stub = arm_pb2_grpc.ArmServiceStub(self.async_channel)
@@ -60,42 +58,49 @@ class GRPCClient:
         self,
         commands: webrtc_bridge_pb2.AnyCommands,
     ) -> None:
+        # self.logger.info(f"Received message: {commands}")
+
+        # TODO: Could this be done in parallel?
         for cmd in commands.commands:
             if cmd.HasField("arm_command"):
                 await self.handle_arm_command(cmd.arm_command)
-            elif cmd.HasField("hand_command"):
+            if cmd.HasField("hand_command"):
                 await self.handle_hand_command(cmd.hand_command)
-            elif cmd.HasField("neck_command"):
+            if cmd.HasField("neck_command"):
                 await self.handle_neck_command(cmd.neck_command)
-            elif cmd.HasField("mobile_base_command"):
+            if cmd.HasField("mobile_base_command"):
                 await self.handle_mobile_base_command(cmd.mobile_base_command)
 
     async def handle_arm_command(self, cmd: webrtc_bridge_pb2.ArmCommand) -> None:
+        # TODO: Could this be done in parallel?
         if cmd.HasField("arm_cartesian_goal"):
             await self.arm_stub.SendArmCartesianGoal(cmd.arm_cartesian_goal)
-        elif cmd.HasField("turn_on"):
+        if cmd.HasField("turn_on"):
             await self.arm_stub.TurnOn(cmd.turn_on)
-        elif cmd.HasField("turn_off"):
+        if cmd.HasField("turn_off"):
             await self.arm_stub.TurnOff(cmd.turn_off)
 
     async def handle_hand_command(self, cmd: webrtc_bridge_pb2.HandCommand) -> None:
+        # TODO: Could this be done in parallel?
         if cmd.HasField("hand_goal"):
             await self.hand_stub.SetHandPosition(cmd.hand_goal)
-        elif cmd.HasField("turn_on"):
+        if cmd.HasField("turn_on"):
             await self.hand_stub.TurnOn(cmd.turn_on)
-        elif cmd.HasField("turn_off"):
+        if cmd.HasField("turn_off"):
             await self.hand_stub.TurnOff(cmd.turn_off)
 
     async def handle_neck_command(self, cmd: webrtc_bridge_pb2.NeckCommand) -> None:
+        # TODO: Could this be done in parallel?
         if cmd.HasField("neck_goal"):
             await self.head_stub.SendNeckJointGoal(cmd.neck_goal)
-        elif cmd.HasField("turn_on"):
+        if cmd.HasField("turn_on"):
             await self.head_stub.TurnOn(cmd.turn_on)
-        elif cmd.HasField("turn_off"):
+        if cmd.HasField("turn_off"):
             await self.head_stub.TurnOff(cmd.turn_off)
 
     async def handle_mobile_base_command(self, cmd: webrtc_bridge_pb2.MobileBaseCommand) -> None:
+        # TODO: Could this be done in parallel?
         if cmd.HasField("target_direction"):
             await self.mb_mobility_stub.SendDirection(cmd.target_direction)
-        elif cmd.HasField("mobile_base_mode"):
+        if cmd.HasField("mobile_base_mode"):
             await self.mb_utility_stub.SetZuuuMode(cmd.mobile_base_mode)
