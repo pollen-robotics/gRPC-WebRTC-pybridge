@@ -154,15 +154,18 @@ class GRPCWebRTCBridge:
                 if cmd.HasField("arm_command"):
                     if cmd.arm_command.HasField("turn_on") or cmd.arm_command.HasField("turn_off"):
                         important_msg = True
-                        important_log = f"Arm command: turn_on {cmd.arm_command.HasField('turn_on')} turn_off {cmd.arm_command.HasField('turn_off')}"
+                        important_log = f"Arm command: turn_on {cmd.arm_command.HasField('turn_on')} \
+                                          turn_off {cmd.arm_command.HasField('turn_off')}"
                 elif cmd.HasField("hand_command"):
                     if cmd.hand_command.HasField("turn_on") or cmd.hand_command.HasField("turn_off"):
                         important_msg = True
-                        important_log = f"Hand command: turn_on {cmd.hand_command.HasField('turn_on')} turn_off {cmd.hand_command.HasField('turn_off')}"
+                        important_log = f"Hand command: turn_on {cmd.hand_command.HasField('turn_on')} \
+                                          turn_off {cmd.hand_command.HasField('turn_off')}"
                 elif cmd.HasField("neck_command"):
                     if cmd.neck_command.HasField("turn_on") or cmd.neck_command.HasField("turn_off"):
                         important_msg = True
-                        important_log = f"Neck command: turn_on {cmd.neck_command.HasField('turn_on')} turn_off {cmd.neck_command.HasField('turn_off')}"
+                        important_log = f"Neck command: turn_on {cmd.neck_command.HasField('turn_on')} \
+                                          turn_off {cmd.neck_command.HasField('turn_off')}"
                 elif cmd.HasField("mobile_base_command"):
                     if cmd.mobile_base_command.HasField("mobile_base_mode"):
                         important_msg = True
