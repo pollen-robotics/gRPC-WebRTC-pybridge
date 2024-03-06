@@ -156,7 +156,7 @@ class GRPCWebRTCBridge:
                         important_msg = True
                         important_log = f"Arm command: turn_on {cmd.arm_command.HasField('turn_on')} turn_off {cmd.arm_command.HasField('turn_off')}"
                 elif cmd.HasField("hand_command"):
-                    if cmd.hand_command.HasField("turn_on") or cmd.hand_command.HasField("turn_off") or True:
+                    if cmd.hand_command.HasField("turn_on") or cmd.hand_command.HasField("turn_off"):
                         important_msg = True
                         important_log = f"Hand command: turn_on {cmd.hand_command.HasField('turn_on')} turn_off {cmd.hand_command.HasField('turn_off')}"
                 elif cmd.HasField("neck_command"):
