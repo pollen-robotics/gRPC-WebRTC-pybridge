@@ -79,6 +79,10 @@ class GRPCClient:
             await self.arm_stub.TurnOn(cmd.turn_on)
         if cmd.HasField("turn_off"):
             await self.arm_stub.TurnOff(cmd.turn_off)
+        if cmd.HasField("speed_limit"):
+            await self.arm_stub.SetSpeedLimit(cmd.speed_limit)
+        if cmd.HasField("torque_limit"):
+            await self.arm_stub.SetTorqueLimit(cmd.torque_limit)
 
     async def handle_hand_command(self, cmd: webrtc_bridge_pb2.HandCommand) -> None:
         # TODO: Could this be done in parallel?
@@ -97,6 +101,10 @@ class GRPCClient:
             await self.head_stub.TurnOn(cmd.turn_on)
         if cmd.HasField("turn_off"):
             await self.head_stub.TurnOff(cmd.turn_off)
+        if cmd.HasField("speed_limit"):
+            await self.head_stub.SetSpeedLimit(cmd.speed_limit)
+        if cmd.HasField("torque_limit"):
+            await self.head_stub.SetTorqueLimit(cmd.torque_limit)
 
     async def handle_mobile_base_command(self, cmd: webrtc_bridge_pb2.MobileBaseCommand) -> None:
         # TODO: Could this be done in parallel?
