@@ -152,7 +152,7 @@ class GRPCWebRTCBridge:
             important_msg = False
             for cmd in commands.commands:
                 if cmd.HasField("arm_command"):
-                    if cmd.arm_command.HasField("turn_on") or cmd.arm_command.HasField("turn_off"):
+                    if cmd.arm_command.HasField("turn_on") or cmd.arm_command.HasField("turn_off") or cmd.arm_command.HasField("speed_limit") or cmd.arm_command.HasField("torque_limit"):
                         important_msg = True
                         important_log = f"Arm command: turn_on {cmd.arm_command.HasField('turn_on')} \
                                           turn_off {cmd.arm_command.HasField('turn_off')}"
