@@ -1,12 +1,20 @@
 import argparse
 import asyncio
 import logging
+import queue
 import sys
 import time
-from threading import Semaphore
+from collections import deque
+from queue import Queue
+
+# from multiprocessing import Process, Queue,
+from threading import Semaphore, Thread
+
 # from queue import Queue
 import aiortc
+import grpc
 from gst_signalling import GstSession, GstSignallingProducer
+from reachy2_sdk_api import reachy_pb2, reachy_pb2_grpc
 from reachy2_sdk_api.webrtc_bridge_pb2 import (
     AnyCommands,
     Connect,
@@ -14,7 +22,6 @@ from reachy2_sdk_api.webrtc_bridge_pb2 import (
     ServiceRequest,
     ServiceResponse,
 )
-from multiprocessing import Process, Queue
 
 from .grpc_client import GRPCClient
 
@@ -28,7 +35,8 @@ reentrancte_counter = 0
 parse_time_arr = []
 test_time_arr = []
 init = False
-msg_queue = Queue()
+std_queue = deque(maxlen=1)
+important_queue = Queue()
 
 
 class GRPCWebRTCBridge:
@@ -92,7 +100,7 @@ class GRPCWebRTCBridge:
         return resp
 
     async def handle_get_reachy_request(self, grpc_client: GRPCClient) -> ServiceResponse:
-        reachy = await grpc_client.get_reachy()
+        reachy = grpc_client.get_reachy()
 
         resp = ServiceResponse(
             connection_status=ConnectionStatus(
@@ -124,9 +132,23 @@ class GRPCWebRTCBridge:
 
         @reachy_state_datachannel.on("open")  # type: ignore[misc]
         def on_reachy_state_datachannel_open() -> None:
+
+            reachy_stub_async = reachy_pb2_grpc.ReachyServiceStub(
+                grpc.aio.insecure_channel(f"{grpc_client.host}:{grpc_client.port}")
+            )
+
+            async def get_reachy_state(reachy_id, publish_frequency):
+                stream_req = reachy_pb2.ReachyStreamStateRequest(
+                    id=reachy_id,
+                    publish_frequency=publish_frequency,
+                )
+
+                async for state in reachy_stub_async.StreamReachyState(stream_req):
+                    yield state
+
             async def send_joint_state() -> None:
                 try:
-                    async for state in grpc_client.get_reachy_state(
+                    async for state in get_reachy_state(
                         request.reachy_id,
                         request.update_frequency,
                     ):
@@ -135,6 +157,7 @@ class GRPCWebRTCBridge:
                     logging.info("Data channel closed.")
 
             asyncio.ensure_future(send_joint_state())
+            # Thread(target=send_joint_state).start()
 
         # Create command data channel and start handling commands
         # assuming data sent by Unity in the FixedUpdate loop. frequency 50Hz / ev 20ms
@@ -144,7 +167,6 @@ class GRPCWebRTCBridge:
         async def on_reachy_command_datachannel_message(
             message: bytes,
         ) -> None:
-
 
             global last_freq_counter
             global last_freq_update
@@ -157,34 +179,69 @@ class GRPCWebRTCBridge:
             global parse_time_arr
             global test_time_arr
             global msg_queue
-            reentrancte_counter +=1
+            reentrancte_counter += 1
 
-            msg_queue.put(message)
+            commands = AnyCommands()
+            commands.ParseFromString(message)
 
-            reentrancte_counter -=1
-            await asyncio.sleep(0.001)
+            # self.logger.info("got a msg to depile")
 
+            if not commands.commands:
+                self.logger.info("No command or incorrect message received {message}")
+                return
 
+            # TODO better, temporary message priority
+            important_msg = False
+            for cmd in commands.commands:
+                if cmd.HasField("arm_command"):
+                    if (
+                        cmd.arm_command.HasField("turn_on")
+                        or cmd.arm_command.HasField("turn_off")
+                        or cmd.arm_command.HasField("speed_limit")
+                        or cmd.arm_command.HasField("torque_limit")
+                    ):
+                        important_msg = True
+                        important_log = f"Arm command: turn_on {cmd.arm_command.HasField('turn_on')} \
+                                            turn_off {cmd.arm_command.HasField('turn_off')} \
+                                            speed_limit {cmd.arm_command.HasField('speed_limit')} \
+                                            torque_limit {cmd.arm_command.HasField('torque_limit')}"
 
+                elif cmd.HasField("hand_command"):
+                    if cmd.hand_command.HasField("turn_on") or cmd.hand_command.HasField("turn_off"):
+                        important_msg = True
+                        important_log = f"Hand command: turn_on {cmd.hand_command.HasField('turn_on')} \
+                                            turn_off {cmd.hand_command.HasField('turn_off')}"
+                elif cmd.HasField("neck_command"):
+                    if cmd.neck_command.HasField("turn_on") or cmd.neck_command.HasField("turn_off"):
+                        important_msg = True
+                        important_log = f"Neck command: turn_on {cmd.neck_command.HasField('turn_on')} \
+                                            turn_off {cmd.neck_command.HasField('turn_off')}"
+                elif cmd.HasField("mobile_base_command"):
+                    if cmd.mobile_base_command.HasField("mobile_base_mode"):
+                        important_msg = True
+                        important_log = f"Mobile base command: mobile_base_mode {str(cmd.mobile_base_command.mobile_base_mode)}"
 
+            if not important_msg:
+                std_queue.append(commands)
+            else:
+                important_queue.put(commands)
+
+            reentrancte_counter -= 1
+            # await asyncio.sleep(0.001)
 
         return ServiceResponse()
 
     async def handle_disconnect_request(self) -> ServiceResponse:
         # TODO: implement me
-        # Let's try
         self.logger.info("Disconnecting...")
-        await self.pc.close()
-        self.logger.info("Disconnected...")
 
-  
         return ServiceResponse()
+
 
 import threading
 
 
-
-def msg_handling(message, grpc_client, logger, smart_lock, loop):
+def msg_handling(message, grpc_client, logger):
     global last_freq_counter
     global last_freq_update
     global last_drop_counter
@@ -196,110 +253,48 @@ def msg_handling(message, grpc_client, logger, smart_lock, loop):
     global parse_time_arr
     global test_time_arr
 
-    parse_before = time.time()
+    last_freq_counter += 1
 
-    commands = AnyCommands()
-    commands.ParseFromString(message)
+    # asyncio.run(grpc_client.handle_commands(commands))
 
-    parse_after = time.time()
+    # bridge.asloop.run_until_complete(bridge.grpc_client.handle_commands(commands))
+    # future = asyncio.run_coroutine_threadsafe(grpc_client.handle_commands(commands), loop)
+    # future.result()
 
-    logger.info("got a msg to depile")
-
-    test_before = time.time()
-    parse_time_arr.append(parse_after - parse_before)
-
-    if not commands.commands:
-        logger.info("No command or incorrect message received {message}")
-        return
-
-    # TODO better, temporary message priority
-    important_msg = False
-    for cmd in commands.commands:
-        if cmd.HasField("arm_command"):
-            if cmd.arm_command.HasField("turn_on") or cmd.arm_command.HasField("turn_off") or cmd.arm_command.HasField("speed_limit") or cmd.arm_command.HasField("torque_limit"):
-                important_msg = True
-                important_log = f"Arm command: turn_on {cmd.arm_command.HasField('turn_on')} \
-                                    turn_off {cmd.arm_command.HasField('turn_off')} \
-                                    speed_limit {cmd.arm_command.HasField('speed_limit')} \
-                                    torque_limit {cmd.arm_command.HasField('torque_limit')}"
-        elif cmd.HasField("hand_command"):
-            if cmd.hand_command.HasField("turn_on") or cmd.hand_command.HasField("turn_off"):
-                important_msg = True
-                important_log = f"Hand command: turn_on {cmd.hand_command.HasField('turn_on')} \
-                                    turn_off {cmd.hand_command.HasField('turn_off')}"
-        elif cmd.HasField("neck_command"):
-            if cmd.neck_command.HasField("turn_on") or cmd.neck_command.HasField("turn_off"):
-                important_msg = True
-                important_log = f"Neck command: turn_on {cmd.neck_command.HasField('turn_on')} \
-                                    turn_off {cmd.neck_command.HasField('turn_off')}"
-        elif cmd.HasField("mobile_base_command"):
-            if cmd.mobile_base_command.HasField("mobile_base_mode"):
-                important_msg = True
-                important_log = f"Mobile base command: mobile_base_mode {str(cmd.mobile_base_command.mobile_base_mode)}"
-
+    grpc_client.handle_commands(message)
+    drop_array.append(0)
     # if important_msg:
-    #     return
+    #     logger.info(f"Some important command has been allowed\n{important_log}")
 
-    test_after = time.time()
+    now = time.time()
+    if now - last_freq_update > 1:
+        current_freq_rate = int(last_freq_counter / (now - last_freq_update))
+        current_drop_rate = int(last_drop_counter / (now - last_freq_update))
 
-    test_time_arr.append(test_after - test_before)
+        logger.info(f"Freq {current_freq_rate} Hz\tDrop {current_drop_rate} Hz")
+        # logger.info(str(drop_array))
+        # self.logger.info(str(parse_time_arr))
+        # self.logger.info(str(test_time_arr))
+        drop_array = []
+        parse_time_arr = []
+        test_time_arr = []
 
+        if init and False:
+            freq_rates.append(current_freq_rate)
+            drop_rates.append(current_drop_rate)
+            if len(freq_rates) > 10000:
+                freq_rates.pop(0)
+                drop_rates.pop(0)
+            mean_freq_rate = sum(freq_rates) / len(freq_rates)
+            mean_drop_rate = sum(drop_rates) / len(drop_rates)
+            logger.info(f"[MEAN] Freq {mean_freq_rate} Hz\tDrop {mean_drop_rate} Hz")
+        else:
+            init = True
+        # Calculate mean values
 
-    # take lock
-    if important_msg or smart_lock.acquire(blocking=False):
-        last_freq_counter += 1
-
-        # asyncio.run(grpc_client.handle_commands(commands))
-
-        
-        # bridge.asloop.run_until_complete(bridge.grpc_client.handle_commands(commands))
-        future = asyncio.run_coroutine_threadsafe(grpc_client.handle_commands(commands) , loop)
-        future.result()
-
-
-        # await grpc_client.handle_commands(commands)
-        drop_array.append(0)
-        if important_msg:
-            logger.info(f"Some important command has been allowed\n{important_log}")
-
-        now = time.time()
-        if now - last_freq_update > 1:
-            current_freq_rate = int(last_freq_counter / (now - last_freq_update))
-            current_drop_rate = int(last_drop_counter / (now - last_freq_update))
-
-            logger.info(f"Freq {current_freq_rate} Hz\tDrop {current_drop_rate} Hz")
-            logger.info(str(drop_array))
-            # self.logger.info(str(parse_time_arr))
-            # self.logger.info(str(test_time_arr))
-            drop_array = []
-            parse_time_arr = []
-            test_time_arr = []
-
-            if init and False:
-                freq_rates.append(current_freq_rate)
-                drop_rates.append(current_drop_rate)
-                if len(freq_rates) > 10000:
-                    freq_rates.pop(0)
-                    drop_rates.pop(0)
-                mean_freq_rate = sum(freq_rates) / len(freq_rates)
-                mean_drop_rate = sum(drop_rates) / len(drop_rates)
-                logger.info(f"[MEAN] Freq {mean_freq_rate} Hz\tDrop {mean_drop_rate} Hz")
-            else:
-                init = True
-            # Calculate mean values
-
-            last_freq_counter = 0
-            last_drop_counter = 0
-            last_freq_update = now
-
-        smart_lock.release()
-    else:
-        # self.logger.info("Nevermind, I'll send the next one")
-        last_drop_counter += 1
-        drop_array.append(1)
-
-
-
+        last_freq_counter = 0
+        last_drop_counter = 0
+        last_freq_update = now
 
 
 def main() -> int:  # noqa: C901
@@ -348,6 +343,7 @@ def main() -> int:  # noqa: C901
     bridge = GRPCWebRTCBridge(args)
 
     time.sleep(2)
+
     def print_reantrance(bridge):
         print(f"\n{reentrancte_counter}\n")
         try:
@@ -356,23 +352,41 @@ def main() -> int:  # noqa: C901
                 time.sleep(1)
         except:
             print("\n\oh no le bio\n")
+
     x = threading.Thread(target=print_reantrance, args=(bridge,))
     x.start()
 
-
-
-    def msg_handling_routine(multip_queue, grpc_host, grpc_port):
+    def msg_handling_routine(std_queue, important_queue, grpc_host, grpc_port):
         grpc_client = GRPCClient(grpc_host, grpc_port)
         print("\n\_inside process handler\n\n\n ")
         logger = logging.getLogger(__name__)
         logger.info("\n\n\n \n\n\n \n\n\n hé ho ")
-        smart_lock = Semaphore(1)
-        loop = asyncio.get_event_loop()
+        # smart_lock = Lock()
         while True:
-            # bridge.logger.info("waiting for a message")
-            msg_handling(multip_queue.get(), grpc_client, logger, smart_lock, loop)
 
-    msg_handler_process = Process(target=msg_handling_routine, args=(msg_queue,bridge.grpc_host,bridge.grpc_port,))
+            while True:
+
+                try:
+                    msg = important_queue.get(block=False)
+                    logger.info("Got an important message ! ")
+                    msg_handling(msg, grpc_client, logger)
+                except queue.Empty:
+                    break
+            try:
+                msg = std_queue.pop()
+                msg_handling(msg, grpc_client, logger)
+            except IndexError:
+                time.sleep(0.001)
+
+    msg_handler_process = Thread(
+        target=msg_handling_routine,
+        args=(
+            std_queue,
+            important_queue,
+            bridge.grpc_host,
+            bridge.grpc_port,
+        ),
+    )
     msg_handler_process.start()
     loop = asyncio.get_event_loop()
     try:
