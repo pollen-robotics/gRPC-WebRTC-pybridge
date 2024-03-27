@@ -345,10 +345,10 @@ def main() -> int:  # noqa: C901
     time.sleep(2)
 
     def print_reantrance(bridge):
-        print(f"\n{reentrancte_counter}\n")
+        bridge.logger.info(f"\n{reentrancte_counter}\n")
         try:
             while True:
-                bridge.logger.info(f"\n{reentrancte_counter} || {msg_queue.qsize()}\n")
+                bridge.logger.info(f"\n{reentrancte_counter} || {important_queue.qsize()}\n ")
                 time.sleep(1)
         except:
             print("\n\oh no le bio\n")
