@@ -22,6 +22,10 @@ last_freq_update = time.time()
 last_drop_counter = 0
 freq_rates = []
 drop_rates = []
+drop_array = []
+reentrancte_counter = 0
+parse_time_arr = []
+test_time_arr = []
 init = False
 
 
@@ -35,22 +39,22 @@ class GRPCWebRTCBridge:
             name="grpc_webrtc_bridge",
         )
         # self.smart_lock = Lock()
-        self.smart_lock = Semaphore(10)
+        self.smart_lock = Semaphore(1)
 
         @self.producer.on("new_session")  # type: ignore[misc]
         def on_new_session(session: GstSession) -> None:
-            pc = session.pc
+            self.pc = session.pc
 
             grpc_client = GRPCClient(args.grpc_host, args.grpc_port)
 
-            service_channel = pc.createDataChannel("service")
+            service_channel = self.pc.createDataChannel("service")
 
             @service_channel.on("message")  # type: ignore[misc]
             async def service_channel_message(message: bytes) -> None:
                 request = ServiceRequest()
                 request.ParseFromString(message)
 
-                response = await self.handle_service_request(request, grpc_client, pc)
+                response = await self.handle_service_request(request, grpc_client, self.pc)
 
                 service_channel.send(response.SerializeToString())
 
@@ -134,18 +138,35 @@ class GRPCWebRTCBridge:
         async def on_reachy_command_datachannel_message(
             message: bytes,
         ) -> None:
+
+        
             global last_freq_counter
             global last_freq_update
             global last_drop_counter
             global freq_rates
             global drop_rates
             global init
+            global drop_array
+            global reentrancte_counter
+            global parse_time_arr
+            global test_time_arr
+            reentrancte_counter +=1
+
+            parse_before = time.time()
 
             commands = AnyCommands()
             commands.ParseFromString(message)
 
+            parse_after = time.time()
+
+
+
+            test_before = time.time()
+            parse_time_arr.append(parse_after - parse_before)
+
             if not commands.commands:
                 self.logger.info("No command or incorrect message received {message}")
+                reentrancte_counter -=1
                 return
 
             # TODO better, temporary message priority
@@ -155,7 +176,9 @@ class GRPCWebRTCBridge:
                     if cmd.arm_command.HasField("turn_on") or cmd.arm_command.HasField("turn_off") or cmd.arm_command.HasField("speed_limit") or cmd.arm_command.HasField("torque_limit"):
                         important_msg = True
                         important_log = f"Arm command: turn_on {cmd.arm_command.HasField('turn_on')} \
-                                          turn_off {cmd.arm_command.HasField('turn_off')}"
+                                          turn_off {cmd.arm_command.HasField('turn_off')} \
+                                          speed_limit {cmd.arm_command.HasField('speed_limit')} \
+                                          torque_limit {cmd.arm_command.HasField('torque_limit')}"
                 elif cmd.HasField("hand_command"):
                     if cmd.hand_command.HasField("turn_on") or cmd.hand_command.HasField("turn_off"):
                         important_msg = True
@@ -171,11 +194,20 @@ class GRPCWebRTCBridge:
                         important_msg = True
                         important_log = f"Mobile base command: mobile_base_mode {str(cmd.mobile_base_command.mobile_base_mode)}"
 
+            # if important_msg:
+            #     return
+
+            test_after = time.time()
+
+            test_time_arr.append(test_after - test_before)
+
+
             # take lock
             if important_msg or self.smart_lock.acquire(blocking=False):
                 last_freq_counter += 1
-                await grpc_client.handle_commands(commands)
 
+                await grpc_client.handle_commands(commands)
+                drop_array.append(0)
                 if important_msg:
                     self.logger.info(f"Some important command has been allowed\n{important_log}")
 
@@ -185,8 +217,14 @@ class GRPCWebRTCBridge:
                     current_drop_rate = int(last_drop_counter / (now - last_freq_update))
 
                     self.logger.info(f"Freq {current_freq_rate} Hz\tDrop {current_drop_rate} Hz")
+                    self.logger.info(str(drop_array))
+                    # self.logger.info(str(parse_time_arr))
+                    # self.logger.info(str(test_time_arr))
+                    drop_array = []
+                    parse_time_arr = []
+                    test_time_arr = []
 
-                    if init:
+                    if init and False:
                         freq_rates.append(current_freq_rate)
                         drop_rates.append(current_drop_rate)
                         if len(freq_rates) > 10000:
@@ -207,15 +245,28 @@ class GRPCWebRTCBridge:
             else:
                 # self.logger.info("Nevermind, I'll send the next one")
                 last_drop_counter += 1
+                drop_array.append(1)
+
+            reentrancte_counter -=1
+
+
+
+
+
 
         return ServiceResponse()
 
     async def handle_disconnect_request(self) -> ServiceResponse:
         # TODO: implement me
+        # Let's try
         self.logger.info("Disconnecting...")
+        await self.pc.close()
+        self.logger.info("Disconnected...")
 
+  
         return ServiceResponse()
 
+import threading
 
 def main() -> int:  # noqa: C901
     parser = argparse.ArgumentParser()
@@ -263,7 +314,16 @@ def main() -> int:  # noqa: C901
     bridge = GRPCWebRTCBridge(args)
 
     time.sleep(2)
-
+    def print_reantrance(bridge):
+        print(f"\n{reentrancte_counter}\n")
+        try:
+            while True:
+                bridge.logger.info(f"\n{reentrancte_counter}\n")
+                time.sleep(1)
+        except:
+            print("\n\oh no le bio\n")
+    x = threading.Thread(target=print_reantrance, args=(bridge,))
+    x.start()
     loop = asyncio.get_event_loop()
     try:
         loop.run_until_complete(bridge.serve4ever())
