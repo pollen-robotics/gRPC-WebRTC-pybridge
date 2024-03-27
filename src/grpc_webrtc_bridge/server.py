@@ -42,11 +42,14 @@ class GRPCWebRTCBridge:
         # self.smart_lock = Lock()
         self.smart_lock = Semaphore(1)
 
+        self.asloop = asyncio.get_event_loop()
+        # asyncio.set_event_loop(asloop)
+
         @self.producer.on("new_session")  # type: ignore[misc]
         def on_new_session(session: GstSession) -> None:
             self.pc = session.pc
 
-            grpc_client = GRPCClient(args.grpc_host, args.grpc_port)
+            self.grpc_client = GRPCClient(args.grpc_host, args.grpc_port)
 
             service_channel = self.pc.createDataChannel("service")
 
@@ -55,7 +58,7 @@ class GRPCWebRTCBridge:
                 request = ServiceRequest()
                 request.ParseFromString(message)
 
-                response = await self.handle_service_request(request, grpc_client, self.pc)
+                response = await self.handle_service_request(request, self.grpc_client, self.pc)
 
                 service_channel.send(response.SerializeToString())
 
@@ -198,7 +201,7 @@ def msg_handling(message, bridge):
 
     parse_after = time.time()
 
-
+    # bridge.logger.info("got a msg to depile")
 
     test_before = time.time()
     parse_time_arr.append(parse_after - parse_before)
@@ -244,7 +247,14 @@ def msg_handling(message, bridge):
     if important_msg or bridge.smart_lock.acquire(blocking=False):
         last_freq_counter += 1
 
-        asyncio.run(grpc_client.handle_commands(commands))
+        # asyncio.run(bridge.grpc_client.handle_commands(commands))
+
+        
+        # bridge.asloop.run_until_complete(bridge.grpc_client.handle_commands(commands))
+        future = asyncio.run_coroutine_threadsafe(bridge.grpc_client.handle_commands(commands) , bridge.asloop)
+        future.result()
+
+
         # await grpc_client.handle_commands(commands)
         drop_array.append(0)
         if important_msg:
@@ -351,6 +361,7 @@ def main() -> int:  # noqa: C901
 
     def msg_handling_routine(bridge):
         while True:
+            # bridge.logger.info("waiting for a message")
             msg_handling(msg_queue.get(), bridge)
 
     msg_handler_thread = threading.Thread(target=msg_handling_routine, args=(bridge,))
