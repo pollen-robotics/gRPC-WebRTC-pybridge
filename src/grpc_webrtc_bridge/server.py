@@ -40,6 +40,7 @@ class GRPCWebRTCBridge:
         )
         # self.smart_lock = Lock()
         self.smart_lock = Semaphore(1)
+        self.last_t_message = time.time()
 
         @self.producer.on("new_session")  # type: ignore[misc]
         def on_new_session(session: GstSession) -> None:
@@ -151,6 +152,17 @@ class GRPCWebRTCBridge:
             global parse_time_arr
             global test_time_arr
             reentrancte_counter +=1
+            
+            t = time.time()
+            
+            if (t - self.last_t_message) > 0.1:
+                self.logger.info("YYYY Too old!")
+                reentrancte_counter -=1
+                self.last_t_message = t
+                
+                return
+            self.last_t_message = t
+                
 
             parse_before = time.time()
 

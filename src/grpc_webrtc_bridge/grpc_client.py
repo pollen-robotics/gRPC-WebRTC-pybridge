@@ -13,6 +13,7 @@ from reachy2_sdk_api import (
     reachy_pb2_grpc,
     webrtc_bridge_pb2,
 )
+import time
 
 
 class GRPCClient:
@@ -59,17 +60,24 @@ class GRPCClient:
         commands: webrtc_bridge_pb2.AnyCommands,
     ) -> None:
         # self.logger.info(f"Received message: {commands}")
-
+        t = time.time()
         # TODO: Could this be done in parallel?
         for cmd in commands.commands:
             if cmd.HasField("arm_command"):
                 await self.handle_arm_command(cmd.arm_command)
+                self.logger.info(f"XXXX handle_arm_command was {1000*(time.time() - t):.2f}ms long!")
             if cmd.HasField("hand_command"):
                 await self.handle_hand_command(cmd.hand_command)
+                self.logger.info(f"XXXX handle_hand_command was {1000*(time.time() - t):.2f}ms long!")
             if cmd.HasField("neck_command"):
                 await self.handle_neck_command(cmd.neck_command)
+                self.logger.info(f"XXXX handle_neck_command was {1000*(time.time() - t):.2f}ms long!")
             if cmd.HasField("mobile_base_command"):
                 await self.handle_mobile_base_command(cmd.mobile_base_command)
+                self.logger.info(f"XXXX handle_mobile_base_command was {1000*(time.time() - t):.2f}ms long!")
+                
+        self.logger.info(f"XXXX handle_commands was {1000*(time.time() - t):.2f}ms long!")
+        
 
     async def handle_arm_command(self, cmd: webrtc_bridge_pb2.ArmCommand) -> None:
         # TODO: Could this be done in parallel?
