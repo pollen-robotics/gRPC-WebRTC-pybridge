@@ -4,7 +4,7 @@ import logging
 import sys
 import time
 from threading import Semaphore
-
+from queue import Queue
 import aiortc
 from gst_signalling import GstSession, GstSignallingProducer
 from reachy2_sdk_api.webrtc_bridge_pb2 import (
@@ -27,6 +27,7 @@ reentrancte_counter = 0
 parse_time_arr = []
 test_time_arr = []
 init = False
+msg_queue = Queue()
 
 
 class GRPCWebRTCBridge:
@@ -139,7 +140,7 @@ class GRPCWebRTCBridge:
             message: bytes,
         ) -> None:
 
-        
+
             global last_freq_counter
             global last_freq_update
             global last_drop_counter
@@ -150,102 +151,10 @@ class GRPCWebRTCBridge:
             global reentrancte_counter
             global parse_time_arr
             global test_time_arr
+            global msg_queue
             reentrancte_counter +=1
 
-            parse_before = time.time()
-
-            commands = AnyCommands()
-            commands.ParseFromString(message)
-
-            parse_after = time.time()
-
-
-
-            test_before = time.time()
-            parse_time_arr.append(parse_after - parse_before)
-
-            if not commands.commands:
-                self.logger.info("No command or incorrect message received {message}")
-                reentrancte_counter -=1
-                return
-
-            # TODO better, temporary message priority
-            important_msg = False
-            for cmd in commands.commands:
-                if cmd.HasField("arm_command"):
-                    if cmd.arm_command.HasField("turn_on") or cmd.arm_command.HasField("turn_off") or cmd.arm_command.HasField("speed_limit") or cmd.arm_command.HasField("torque_limit"):
-                        important_msg = True
-                        important_log = f"Arm command: turn_on {cmd.arm_command.HasField('turn_on')} \
-                                          turn_off {cmd.arm_command.HasField('turn_off')} \
-                                          speed_limit {cmd.arm_command.HasField('speed_limit')} \
-                                          torque_limit {cmd.arm_command.HasField('torque_limit')}"
-                elif cmd.HasField("hand_command"):
-                    if cmd.hand_command.HasField("turn_on") or cmd.hand_command.HasField("turn_off"):
-                        important_msg = True
-                        important_log = f"Hand command: turn_on {cmd.hand_command.HasField('turn_on')} \
-                                          turn_off {cmd.hand_command.HasField('turn_off')}"
-                elif cmd.HasField("neck_command"):
-                    if cmd.neck_command.HasField("turn_on") or cmd.neck_command.HasField("turn_off"):
-                        important_msg = True
-                        important_log = f"Neck command: turn_on {cmd.neck_command.HasField('turn_on')} \
-                                          turn_off {cmd.neck_command.HasField('turn_off')}"
-                elif cmd.HasField("mobile_base_command"):
-                    if cmd.mobile_base_command.HasField("mobile_base_mode"):
-                        important_msg = True
-                        important_log = f"Mobile base command: mobile_base_mode {str(cmd.mobile_base_command.mobile_base_mode)}"
-
-            # if important_msg:
-            #     return
-
-            test_after = time.time()
-
-            test_time_arr.append(test_after - test_before)
-
-
-            # take lock
-            if important_msg or self.smart_lock.acquire(blocking=False):
-                last_freq_counter += 1
-
-                await grpc_client.handle_commands(commands)
-                drop_array.append(0)
-                if important_msg:
-                    self.logger.info(f"Some important command has been allowed\n{important_log}")
-
-                now = time.time()
-                if now - last_freq_update > 1:
-                    current_freq_rate = int(last_freq_counter / (now - last_freq_update))
-                    current_drop_rate = int(last_drop_counter / (now - last_freq_update))
-
-                    self.logger.info(f"Freq {current_freq_rate} Hz\tDrop {current_drop_rate} Hz")
-                    self.logger.info(str(drop_array))
-                    # self.logger.info(str(parse_time_arr))
-                    # self.logger.info(str(test_time_arr))
-                    drop_array = []
-                    parse_time_arr = []
-                    test_time_arr = []
-
-                    if init and False:
-                        freq_rates.append(current_freq_rate)
-                        drop_rates.append(current_drop_rate)
-                        if len(freq_rates) > 10000:
-                            freq_rates.pop(0)
-                            drop_rates.pop(0)
-                        mean_freq_rate = sum(freq_rates) / len(freq_rates)
-                        mean_drop_rate = sum(drop_rates) / len(drop_rates)
-                        self.logger.info(f"[MEAN] Freq {mean_freq_rate} Hz\tDrop {mean_drop_rate} Hz")
-                    else:
-                        init = True
-                    # Calculate mean values
-
-                    last_freq_counter = 0
-                    last_drop_counter = 0
-                    last_freq_update = now
-
-                self.smart_lock.release()
-            else:
-                # self.logger.info("Nevermind, I'll send the next one")
-                last_drop_counter += 1
-                drop_array.append(1)
+            msg_queue.put(message)
 
             reentrancte_counter -=1
 
@@ -267,6 +176,119 @@ class GRPCWebRTCBridge:
         return ServiceResponse()
 
 import threading
+
+
+
+def msg_handling(message, bridge):
+    global last_freq_counter
+    global last_freq_update
+    global last_drop_counter
+    global freq_rates
+    global drop_rates
+    global init
+    global drop_array
+    global reentrancte_counter
+    global parse_time_arr
+    global test_time_arr
+
+    parse_before = time.time()
+
+    commands = AnyCommands()
+    commands.ParseFromString(message)
+
+    parse_after = time.time()
+
+
+
+    test_before = time.time()
+    parse_time_arr.append(parse_after - parse_before)
+
+    if not commands.commands:
+        bridge.logger.info("No command or incorrect message received {message}")
+        return
+
+    # TODO better, temporary message priority
+    important_msg = False
+    for cmd in commands.commands:
+        if cmd.HasField("arm_command"):
+            if cmd.arm_command.HasField("turn_on") or cmd.arm_command.HasField("turn_off") or cmd.arm_command.HasField("speed_limit") or cmd.arm_command.HasField("torque_limit"):
+                important_msg = True
+                important_log = f"Arm command: turn_on {cmd.arm_command.HasField('turn_on')} \
+                                    turn_off {cmd.arm_command.HasField('turn_off')} \
+                                    speed_limit {cmd.arm_command.HasField('speed_limit')} \
+                                    torque_limit {cmd.arm_command.HasField('torque_limit')}"
+        elif cmd.HasField("hand_command"):
+            if cmd.hand_command.HasField("turn_on") or cmd.hand_command.HasField("turn_off"):
+                important_msg = True
+                important_log = f"Hand command: turn_on {cmd.hand_command.HasField('turn_on')} \
+                                    turn_off {cmd.hand_command.HasField('turn_off')}"
+        elif cmd.HasField("neck_command"):
+            if cmd.neck_command.HasField("turn_on") or cmd.neck_command.HasField("turn_off"):
+                important_msg = True
+                important_log = f"Neck command: turn_on {cmd.neck_command.HasField('turn_on')} \
+                                    turn_off {cmd.neck_command.HasField('turn_off')}"
+        elif cmd.HasField("mobile_base_command"):
+            if cmd.mobile_base_command.HasField("mobile_base_mode"):
+                important_msg = True
+                important_log = f"Mobile base command: mobile_base_mode {str(cmd.mobile_base_command.mobile_base_mode)}"
+
+    # if important_msg:
+    #     return
+
+    test_after = time.time()
+
+    test_time_arr.append(test_after - test_before)
+
+
+    # take lock
+    if important_msg or bridge.smart_lock.acquire(blocking=False):
+        last_freq_counter += 1
+
+        asyncio.run(grpc_client.handle_commands(commands))
+        # await grpc_client.handle_commands(commands)
+        drop_array.append(0)
+        if important_msg:
+            bridge.logger.info(f"Some important command has been allowed\n{important_log}")
+
+        now = time.time()
+        if now - last_freq_update > 1:
+            current_freq_rate = int(last_freq_counter / (now - last_freq_update))
+            current_drop_rate = int(last_drop_counter / (now - last_freq_update))
+
+            bridge.logger.info(f"Freq {current_freq_rate} Hz\tDrop {current_drop_rate} Hz")
+            bridge.logger.info(str(drop_array))
+            # self.logger.info(str(parse_time_arr))
+            # self.logger.info(str(test_time_arr))
+            drop_array = []
+            parse_time_arr = []
+            test_time_arr = []
+
+            if init and False:
+                freq_rates.append(current_freq_rate)
+                drop_rates.append(current_drop_rate)
+                if len(freq_rates) > 10000:
+                    freq_rates.pop(0)
+                    drop_rates.pop(0)
+                mean_freq_rate = sum(freq_rates) / len(freq_rates)
+                mean_drop_rate = sum(drop_rates) / len(drop_rates)
+                bridge.logger.info(f"[MEAN] Freq {mean_freq_rate} Hz\tDrop {mean_drop_rate} Hz")
+            else:
+                init = True
+            # Calculate mean values
+
+            last_freq_counter = 0
+            last_drop_counter = 0
+            last_freq_update = now
+
+        bridge.smart_lock.release()
+    else:
+        # self.logger.info("Nevermind, I'll send the next one")
+        last_drop_counter += 1
+        drop_array.append(1)
+
+
+
+
 
 def main() -> int:  # noqa: C901
     parser = argparse.ArgumentParser()
@@ -318,12 +340,21 @@ def main() -> int:  # noqa: C901
         print(f"\n{reentrancte_counter}\n")
         try:
             while True:
-                bridge.logger.info(f"\n{reentrancte_counter}\n")
+                bridge.logger.info(f"\n{reentrancte_counter} || {msg_queue.qsize()}\n")
                 time.sleep(1)
         except:
             print("\n\oh no le bio\n")
     x = threading.Thread(target=print_reantrance, args=(bridge,))
     x.start()
+
+
+
+    def msg_handling_routine(bridge):
+        while True:
+            msg_handling(msg_queue.get(), bridge)
+
+    msg_handler_thread = threading.Thread(target=msg_handling_routine, args=(bridge,))
+    msg_handler_thread.start()
     loop = asyncio.get_event_loop()
     try:
         loop.run_until_complete(bridge.serve4ever())
