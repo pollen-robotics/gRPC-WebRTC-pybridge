@@ -4,7 +4,7 @@ import logging
 import sys
 import time
 from threading import Semaphore
-from queue import Queue
+# from queue import Queue
 import aiortc
 from gst_signalling import GstSession, GstSignallingProducer
 from reachy2_sdk_api.webrtc_bridge_pb2 import (
@@ -14,6 +14,7 @@ from reachy2_sdk_api.webrtc_bridge_pb2 import (
     ServiceRequest,
     ServiceResponse,
 )
+from multiprocessing import Process, Queue
 
 from .grpc_client import GRPCClient
 
@@ -41,7 +42,8 @@ class GRPCWebRTCBridge:
         )
         # self.smart_lock = Lock()
         self.smart_lock = Semaphore(1)
-
+        self.grpc_host = args.grpc_host
+        self.grpc_port = args.grpc_port
         self.asloop = asyncio.get_event_loop()
         # asyncio.set_event_loop(asloop)
 
@@ -160,7 +162,7 @@ class GRPCWebRTCBridge:
             msg_queue.put(message)
 
             reentrancte_counter -=1
-
+            await asyncio.sleep(0.001)
 
 
 
@@ -182,7 +184,7 @@ import threading
 
 
 
-def msg_handling(message, bridge):
+def msg_handling(message, grpc_client, logger, smart_lock, loop):
     global last_freq_counter
     global last_freq_update
     global last_drop_counter
@@ -201,13 +203,13 @@ def msg_handling(message, bridge):
 
     parse_after = time.time()
 
-    # bridge.logger.info("got a msg to depile")
+    logger.info("got a msg to depile")
 
     test_before = time.time()
     parse_time_arr.append(parse_after - parse_before)
 
     if not commands.commands:
-        bridge.logger.info("No command or incorrect message received {message}")
+        logger.info("No command or incorrect message received {message}")
         return
 
     # TODO better, temporary message priority
@@ -244,29 +246,29 @@ def msg_handling(message, bridge):
 
 
     # take lock
-    if important_msg or bridge.smart_lock.acquire(blocking=False):
+    if important_msg or smart_lock.acquire(blocking=False):
         last_freq_counter += 1
 
-        # asyncio.run(bridge.grpc_client.handle_commands(commands))
+        # asyncio.run(grpc_client.handle_commands(commands))
 
         
         # bridge.asloop.run_until_complete(bridge.grpc_client.handle_commands(commands))
-        future = asyncio.run_coroutine_threadsafe(bridge.grpc_client.handle_commands(commands) , bridge.asloop)
+        future = asyncio.run_coroutine_threadsafe(grpc_client.handle_commands(commands) , loop)
         future.result()
 
 
         # await grpc_client.handle_commands(commands)
         drop_array.append(0)
         if important_msg:
-            bridge.logger.info(f"Some important command has been allowed\n{important_log}")
+            logger.info(f"Some important command has been allowed\n{important_log}")
 
         now = time.time()
         if now - last_freq_update > 1:
             current_freq_rate = int(last_freq_counter / (now - last_freq_update))
             current_drop_rate = int(last_drop_counter / (now - last_freq_update))
 
-            bridge.logger.info(f"Freq {current_freq_rate} Hz\tDrop {current_drop_rate} Hz")
-            bridge.logger.info(str(drop_array))
+            logger.info(f"Freq {current_freq_rate} Hz\tDrop {current_drop_rate} Hz")
+            logger.info(str(drop_array))
             # self.logger.info(str(parse_time_arr))
             # self.logger.info(str(test_time_arr))
             drop_array = []
@@ -281,7 +283,7 @@ def msg_handling(message, bridge):
                     drop_rates.pop(0)
                 mean_freq_rate = sum(freq_rates) / len(freq_rates)
                 mean_drop_rate = sum(drop_rates) / len(drop_rates)
-                bridge.logger.info(f"[MEAN] Freq {mean_freq_rate} Hz\tDrop {mean_drop_rate} Hz")
+                logger.info(f"[MEAN] Freq {mean_freq_rate} Hz\tDrop {mean_drop_rate} Hz")
             else:
                 init = True
             # Calculate mean values
@@ -290,7 +292,7 @@ def msg_handling(message, bridge):
             last_drop_counter = 0
             last_freq_update = now
 
-        bridge.smart_lock.release()
+        smart_lock.release()
     else:
         # self.logger.info("Nevermind, I'll send the next one")
         last_drop_counter += 1
@@ -359,13 +361,19 @@ def main() -> int:  # noqa: C901
 
 
 
-    def msg_handling_routine(bridge):
+    def msg_handling_routine(multip_queue, grpc_host, grpc_port):
+        grpc_client = GRPCClient(grpc_host, grpc_port)
+        print("\n\_inside process handler\n\n\n ")
+        logger = logging.getLogger(__name__)
+        logger.info("\n\n\n \n\n\n \n\n\n hé ho ")
+        smart_lock = Semaphore(1)
+        loop = asyncio.get_event_loop()
         while True:
             # bridge.logger.info("waiting for a message")
-            msg_handling(msg_queue.get(), bridge)
+            msg_handling(multip_queue.get(), grpc_client, logger, smart_lock, loop)
 
-    msg_handler_thread = threading.Thread(target=msg_handling_routine, args=(bridge,))
-    msg_handler_thread.start()
+    msg_handler_process = Process(target=msg_handling_routine, args=(msg_queue,bridge.grpc_host,bridge.grpc_port,))
+    msg_handler_process.start()
     loop = asyncio.get_event_loop()
     try:
         loop.run_until_complete(bridge.serve4ever())
