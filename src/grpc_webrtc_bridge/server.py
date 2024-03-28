@@ -268,16 +268,16 @@ class GRPCWebRTCBridge:
                 for cmd in commands.commands:
                     if cmd.HasField("arm_command"):
                         # important_queue["arm"].put(cmd.arm_command)
-                        important_queue.put(cmd.arm_command)
+                        important_queue.put(commands)
                         # time.sleep(0.1)
-                    if cmd.HasField("hand_command"):
+                    elif cmd.HasField("hand_command"):
                         # important_queue["hand"].put(cmd.hand_command)
-                        important_queue.put(cmd.hand_command)
+                        important_queue.put(commands)
 
-                    if cmd.HasField("neck_command"):
-                        important_queue.put(cmd.neck_command)
-                    if cmd.HasField("mobile_base_command"):
-                        important_queue.put(cmd.mobile_base_command)
+                    elif cmd.HasField("neck_command"):
+                        important_queue.put(commands)
+                    elif cmd.HasField("mobile_base_command"):
+                        important_queue.put(commands)
 
             reentrancte_counter -= 1
             # await asyncio.sleep(0.001)
@@ -387,17 +387,17 @@ def main() -> int:  # noqa: C901
 
     time.sleep(2)
 
-    def print_reantrance(bridge):
-        bridge.logger.info(f"\n{reentrancte_counter}\n")
-        try:
-            while True:
-                bridge.logger.info(f"\n{reentrancte_counter} || {important_queue.qsize()}\n ")
-                time.sleep(1)
-        except:
-            print("\n\oh no le bio\n")
+    # def print_reantrance(bridge):
+    #     bridge.logger.info(f"\n{reentrancte_counter}\n")
+    #     try:
+    #         while True:
+    #             bridge.logger.info(f"\n{reentrancte_counter} || {important_queue.qsize()}\n ")
+    #             time.sleep(1)
+    #     except:
+    #         print("\n\oh no le bio\n")
 
-    x = threading.Thread(target=print_reantrance, args=(bridge,))
-    x.start()
+    # x = threading.Thread(target=print_reantrance, args=(bridge,))
+    # x.start()
 
     def msg_handling_routine(std_queue, part_name, part_handler):
         # grpc_client = GRPCClient(grpc_host, grpc_port)
@@ -434,15 +434,15 @@ def main() -> int:  # noqa: C901
         ).start()
 
     # Important queue
-    def handle_important_queue(grpc_client):
+    def handle_important_queue(grpc_client, logger):
         while True:
-
+            logger.info("Waiting for important msg")
             msg = important_queue.get()
             grpc_client.handle_commands(msg)
 
     Thread(
         target=handle_important_queue,
-        args=(grpc_client),
+        args=(grpc_client,bridge.logger,),
     ).start()
 
     loop = asyncio.get_event_loop()
