@@ -180,7 +180,6 @@ class GRPCWebRTCBridge:
                     logging.info("Data channel closed.")
 
             asyncio.ensure_future(send_joint_state())
-            # Thread(target=send_joint_state).start()
 
         # Create command data channel and start handling commands
         # assuming data sent by Unity in the FixedUpdate loop. frequency 50Hz / ev 20ms
@@ -207,8 +206,6 @@ class GRPCWebRTCBridge:
             commands = AnyCommands()
             commands.ParseFromString(message)
 
-            # self.logger.info("got a msg to depile")
-
             if not commands.commands:
                 self.logger.info("No command or incorrect message received {message}")
                 return
@@ -224,63 +221,33 @@ class GRPCWebRTCBridge:
                         or cmd.arm_command.HasField("torque_limit")
                     ):
                         important_msg = True
-                        important_log = f"Arm command: turn_on {cmd.arm_command.HasField('turn_on')} \
-                                            turn_off {cmd.arm_command.HasField('turn_off')} \
-                                            speed_limit {cmd.arm_command.HasField('speed_limit')} \
-                                            torque_limit {cmd.arm_command.HasField('torque_limit')}"
 
                 elif cmd.HasField("hand_command"):
                     if cmd.hand_command.HasField("turn_on") or cmd.hand_command.HasField("turn_off"):
                         important_msg = True
-                        important_log = f"Hand command: turn_on {cmd.hand_command.HasField('turn_on')} \
-                                            turn_off {cmd.hand_command.HasField('turn_off')}"
+
                 elif cmd.HasField("neck_command"):
                     if cmd.neck_command.HasField("turn_on") or cmd.neck_command.HasField("turn_off"):
                         important_msg = True
-                        important_log = f"Neck command: turn_on {cmd.neck_command.HasField('turn_on')} \
-                                            turn_off {cmd.neck_command.HasField('turn_off')}"
+
                 elif cmd.HasField("mobile_base_command"):
                     if cmd.mobile_base_command.HasField("mobile_base_mode"):
                         important_msg = True
-                        important_log = f"Mobile base command: mobile_base_mode {str(cmd.mobile_base_command.mobile_base_mode)}"
 
             if not important_msg:
                 for cmd in commands.commands:
                     if cmd.HasField("arm_command"):
-                        # self.logger.info(f"arm part id {cmd.arm_command}")
-                        # self.logger.info(f"arm part id {cmd.arm_command.arm_cartesian_goal.HasField('id')}")
-                        # self.logger.info(f"arm part id {cmd.arm_command.arm_cartesian_goal.id.name}")
-                        # self.logger.info(f"arm part id {cmd.arm_command.arm_cartesian_goal.id}")
-                        # self.logger.info(f"arm part id {cmd.arm_command.id}")
-                        # std_queue["arm"].append(cmd.arm_command)
                         std_queue[cmd.arm_command.arm_cartesian_goal.id.name].append(cmd.arm_command)
-                        # time.sleep(0.1)
-                        # exit(1)
                     if cmd.HasField("hand_command"):
-                        # std_queue["hand"].append(cmd.hand_command)
                         std_queue[cmd.hand_command.hand_goal.id.name].append(cmd.hand_command)
                     if cmd.HasField("neck_command"):
                         std_queue["neck"].append(cmd.neck_command)
                     if cmd.HasField("mobile_base_command"):
                         std_queue["mobile_base"].append(cmd.mobile_base_command)
             else:
-                # important_queue.put(commands)
-                for cmd in commands.commands:
-                    if cmd.HasField("arm_command"):
-                        # important_queue["arm"].put(cmd.arm_command)
-                        important_queue.put(commands)
-                        # time.sleep(0.1)
-                    elif cmd.HasField("hand_command"):
-                        # important_queue["hand"].put(cmd.hand_command)
-                        important_queue.put(commands)
-
-                    elif cmd.HasField("neck_command"):
-                        important_queue.put(commands)
-                    elif cmd.HasField("mobile_base_command"):
-                        important_queue.put(commands)
+                important_queue.put(commands)
 
             reentrancte_counter -= 1
-            # await asyncio.sleep(0.001)
 
         return ServiceResponse()
 
@@ -291,53 +258,44 @@ class GRPCWebRTCBridge:
         return ServiceResponse()
 
 
-import threading
-
-
 def msg_handling(message, logger, part_name, part_handler):
     global last_freq_counter
     global last_freq_update
-    global last_drop_counter
-    global freq_rates
-    global drop_rates
-    global init
-    global drop_array
-    global reentrancte_counter
-    global parse_time_arr
-    global test_time_arr
 
     last_freq_counter[part_name] += 1
 
-    # asyncio.run(grpc_client.handle_commands(commands))
-
-    # bridge.asloop.run_until_complete(bridge.grpc_client.handle_commands(commands))
-    # future = asyncio.run_coroutine_threadsafe(grpc_client.handle_commands(commands), loop)
-    # future.result()
-
-    # grpc_client.handle_commands(message)
-    # grpc_client.handle_commands(message)
-
     part_handler(message)
-
-    drop_array.append(0)
-    # if important_msg:
-    #     logger.info(f"Some important command has been allowed\n{important_log}")
 
     now = time.time()
     if now - last_freq_update[part_name] > 1:
         current_freq_rate = int(last_freq_counter[part_name] / (now - last_freq_update[part_name]))
-        # current_drop_rate = int(last_drop_counter / (now - last_freq_update))
 
         logger.info(f"Freq {part_name} {current_freq_rate} Hz")
-        # logger.info(str(drop_array))
-        # self.logger.info(str(parse_time_arr))
-        # self.logger.info(str(test_time_arr))
-        drop_array = []
-        parse_time_arr = []
-        test_time_arr = []
 
         last_freq_counter[part_name] = 0
         last_freq_update[part_name] = now
+
+
+###### Routines
+
+
+def handle_std_queue_routine(std_queue, part_name, part_handler):
+    logger = logging.getLogger(__name__)
+    while True:
+
+        try:
+            msg = std_queue.pop()
+            msg_handling(msg, logger, part_name, part_handler)
+        except IndexError:
+            time.sleep(0.001)
+
+
+def handle_important_queue_routine(grpc_client, logger):
+    while True:
+        grpc_client.handle_commands(important_queue.get())
+
+
+#### MAIN
 
 
 def main() -> int:  # noqa: C901
@@ -387,32 +345,6 @@ def main() -> int:  # noqa: C901
 
     time.sleep(2)
 
-    # def print_reantrance(bridge):
-    #     bridge.logger.info(f"\n{reentrancte_counter}\n")
-    #     try:
-    #         while True:
-    #             bridge.logger.info(f"\n{reentrancte_counter} || {important_queue.qsize()}\n ")
-    #             time.sleep(1)
-    #     except:
-    #         print("\n\oh no le bio\n")
-
-    # x = threading.Thread(target=print_reantrance, args=(bridge,))
-    # x.start()
-
-    def msg_handling_routine(std_queue, part_name, part_handler):
-        # grpc_client = GRPCClient(grpc_host, grpc_port)
-        print("\n\_inside process handler\n\n\n ")
-        logger = logging.getLogger(__name__)
-        logger.info("\n\n\n \n\n\n \n\n\n hé ho ")
-        # smart_lock = Lock()
-        while True:
-
-            try:
-                msg = std_queue.pop()
-                msg_handling(msg, logger, part_name, part_handler)
-            except IndexError:
-                time.sleep(0.001)
-
     grpc_client = GRPCClient(bridge.grpc_host, bridge.grpc_port)
     part_handlers = {
         "neck": grpc_client.handle_neck_command,
@@ -422,27 +354,23 @@ def main() -> int:  # noqa: C901
         "l_hand": grpc_client.handle_hand_command,
         "mobile_base": grpc_client.handle_mobile_base_command,
     }
+
     for part in std_queue.keys():
         Thread(
-            target=msg_handling_routine,
+            target=handle_std_queue_routine,
             args=(
                 std_queue[part],
-                # important_queue[part],
                 part,
                 part_handlers[part],
             ),
         ).start()
 
-    # Important queue
-    def handle_important_queue(grpc_client, logger):
-        while True:
-            logger.info("Waiting for important msg")
-            msg = important_queue.get()
-            grpc_client.handle_commands(msg)
-
     Thread(
-        target=handle_important_queue,
-        args=(grpc_client,bridge.logger,),
+        target=handle_important_queue_routine,
+        args=(
+            grpc_client,
+            bridge.logger,
+        ),
     ).start()
 
     loop = asyncio.get_event_loop()
