@@ -52,6 +52,19 @@ class GRPCClient:
 
         async for state in self.reachy_stub.StreamReachyState(stream_req):
             yield state
+    
+    async def audit(
+        self,
+        reachy_id: reachy_pb2.ReachyId,
+        publish_frequency: float,
+    ) -> AsyncGenerator[reachy_pb2.ReachyStatus, None]:
+        stream_req = reachy_pb2.ReachyStreamAuditRequest(
+            id=reachy_id,
+            publish_frequency=publish_frequency,
+        )
+
+        async for status in self.reachy_stub.StreamAudit(stream_req):
+            yield status
 
     # Send Commands (torque and cartesian targets)
     async def handle_commands(

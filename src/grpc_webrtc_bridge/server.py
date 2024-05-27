@@ -112,6 +112,16 @@ class GRPCWebRTCBridge:
             maxPacketLifeTime=max_packet_lifetime,
         )
 
+        if request.audit_frequency >= 1000:
+            max_packet_lifetime = 1
+        else:
+            max_packet_lifetime = (int)(1000 // request.audit_frequency)
+
+        reachy_audit_datachannel = pc.createDataChannel(
+            f"reachy_audit_{request.reachy_id.id}",
+            maxPacketLifeTime=max_packet_lifetime,
+        )
+
         @reachy_state_datachannel.on("open")  # type: ignore[misc]
         def on_reachy_state_datachannel_open() -> None:
             async def send_joint_state() -> None:
@@ -125,6 +135,20 @@ class GRPCWebRTCBridge:
                     logging.info("Data channel closed.")
 
             asyncio.ensure_future(send_joint_state())
+        
+        @reachy_audit_datachannel.on("open")  # type: ignore[misc]
+        def on_reachy_audit_datachannel_open() -> None:
+            async def send_reachy_status() -> None:
+                try:
+                    async for state in grpc_client.audit(
+                        request.reachy_id,
+                        request.audit_frequency,
+                    ):
+                        reachy_audit_datachannel.send(state.SerializeToString())
+                except aiortc.exceptions.InvalidStateError:
+                    logging.info("Data channel closed.")
+
+            asyncio.ensure_future(send_reachy_status())
 
         # Create command data channel and start handling commands
         # assuming data sent by Unity in the FixedUpdate loop. frequency 50Hz / ev 20ms
