@@ -174,7 +174,8 @@ class GRPCWebRTCBridge:
             # take lock
             if important_msg or self.smart_lock.acquire(blocking=False):
                 last_freq_counter += 1
-                await grpc_client.handle_commands(commands)
+                reachability = await grpc_client.handle_commands(commands)
+                reachy_command_datachannel.send(reachability.SerializeToString())
 
                 if important_msg:
                     self.logger.info(f"Some important command has been allowed\n{important_log}")
