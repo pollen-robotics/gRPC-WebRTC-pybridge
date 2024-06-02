@@ -6,6 +6,7 @@ import sys
 import time
 from collections import deque
 from queue import Queue
+import prometheus_client as pc
 
 # from multiprocessing import Process, Queue,
 from threading import Semaphore, Thread
@@ -65,6 +66,11 @@ std_queue = {
 class GRPCWebRTCBridge:
     def __init__(self, args: argparse.Namespace) -> None:
         self.logger = logging.getLogger(__name__)
+        pc.start_http_server(10001)
+        self.sum_spin = pc.Summary('sdkserver_spin_once_time', 'Time spent during bridge spin_once')
+        self.counter_all_commands = pc.Counter('webrtcbridge_all_commands', 'Amount of commands received')
+        self.counter_important_commands = pc.Counter('webrtcbridge_important_commands', 'Amount of important commands received')
+        self.counter_dropped_commands = pc.Counter('webrtcbridge_dropped_commands', 'Amount of commands dropped')
 
         self.producer = GstSignallingProducer(
             host=args.webrtc_signaling_host,
@@ -210,29 +216,28 @@ class GRPCWebRTCBridge:
                 self.logger.info("No command or incorrect message received {message}")
                 return
 
+            self.counter_all_commands.inc(len(commands.commands))
             # TODO better, temporary message priority
-            important_msg = False
+            important_msg = 0
             for cmd in commands.commands:
                 if cmd.HasField("arm_command"):
-                    if (
-                        cmd.arm_command.HasField("turn_on")
-                        or cmd.arm_command.HasField("turn_off")
-                        or cmd.arm_command.HasField("speed_limit")
-                        or cmd.arm_command.HasField("torque_limit")
-                    ):
-                        important_msg = True
+                    important_msg+= cmd.arm_command.HasField("turn_on")
+                    important_msg+= cmd.arm_command.HasField("turn_off")
+                    important_msg+= cmd.arm_command.HasField("speed_limit")
+                    important_msg+= cmd.arm_command.HasField("torque_limit")
 
                 elif cmd.HasField("hand_command"):
-                    if cmd.hand_command.HasField("turn_on") or cmd.hand_command.HasField("turn_off"):
-                        important_msg = True
+                    important_msg+= cmd.hand_command.HasField("turn_on")
+                    important_msg+= cmd.hand_command.HasField("turn_off")
 
                 elif cmd.HasField("neck_command"):
-                    if cmd.neck_command.HasField("turn_on") or cmd.neck_command.HasField("turn_off"):
-                        important_msg = True
+                    important_msg+= cmd.neck_command.HasField("turn_on")
+                    important_msg+= cmd.neck_command.HasField("turn_off")
 
                 elif cmd.HasField("mobile_base_command"):
-                    if cmd.mobile_base_command.HasField("mobile_base_mode"):
-                        important_msg = True
+                    important_msg+= cmd.mobile_base_command.HasField("mobile_base_mode")
+
+            self.counter_important_commands.inc(important_msg)
 
             if not important_msg:
                 for cmd in commands.commands:
