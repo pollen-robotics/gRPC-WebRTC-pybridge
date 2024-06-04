@@ -78,6 +78,7 @@ class GRPCClient:
 
     async def handle_arm_command(self, cmd: webrtc_bridge_pb2.ArmCommand) -> arm_pb2.ArmCartesianGoalReachability:
         # TODO: Could this be done in parallel?
+        reachability = arm_pb2.ArmCartesianGoalReachability()
         if cmd.HasField("arm_cartesian_goal"):
             reachability = await self.arm_stub.SendArmCartesianGoal(cmd.arm_cartesian_goal)
         if cmd.HasField("turn_on"):
