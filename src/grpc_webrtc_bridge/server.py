@@ -62,7 +62,6 @@ std_queue = {
 #     "mobile_base": Queue(),
 # }
 
-
 class GRPCWebRTCBridge:
     def __init__(self, args: argparse.Namespace) -> None:
         self.logger = logging.getLogger(__name__)
@@ -88,6 +87,7 @@ class GRPCWebRTCBridge:
         def on_new_session(session: GstSession) -> None:
             self.pc = session.pc
 
+            print("args.grpc_host, args.grpc_port", args.grpc_host, args.grpc_port)
             self.grpc_client = GRPCClient(args.grpc_host, args.grpc_port)
 
             service_channel = self.pc.createDataChannel("service")
@@ -274,13 +274,14 @@ class GRPCWebRTCBridge:
         return ServiceResponse()
 
 
-def msg_handling(message, logger, part_name, part_handler):
+def msg_handling(message, logger, part_name, part_handler, summary):
     global last_freq_counter
     global last_freq_update
 
     last_freq_counter[part_name] += 1
 
-    part_handler(message)
+    with summary.time():
+        part_handler(message)
 
     now = time.time()
     if now - last_freq_update[part_name] > 1:
@@ -297,18 +298,23 @@ def msg_handling(message, logger, part_name, part_handler):
 
 def handle_std_queue_routine(std_queue, part_name, part_handler):
     logger = logging.getLogger(__name__)
+    sum_part = pc.Summary(f'webrtcbridge_commands_time_{part_name}', f'Time spent during {part_name} commands')
+
     while True:
 
         try:
             msg = std_queue.pop()
-            msg_handling(msg, logger, part_name, part_handler)
+            msg_handling(msg, logger, part_name, part_handler, sum_part)
         except IndexError:
             time.sleep(0.001)
 
 
 def handle_important_queue_routine(grpc_client, logger):
+
+    sum_important = pc.Summary('webrtcbridge_commands_time_important', 'Time spent during important commands')
     while True:
-        grpc_client.handle_commands(important_queue.get())
+        with sum_important.time():
+            grpc_client.handle_commands(important_queue.get())
 
 
 #### MAIN

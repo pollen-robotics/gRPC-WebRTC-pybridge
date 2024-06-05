@@ -14,6 +14,12 @@ from reachy2_sdk_api import (
     webrtc_bridge_pb2,
 )
 
+# sum_hand = pc.Summary('grpcwebrtc_client_hand_commands', 'Time spent during hand commands')
+# sum_arm =  pc.Summary('grpcwebrtc_client_arm_commands', 'Time spent during arm commands')
+# sum_neck = pc.Summary('grpcwebrtc_client_neck_commands', 'Time spent during neck commands')
+# sum_base = pc.Summary('grpcwebrtc_client_base_commands', 'Time spent during base commands')
+
+
 
 class GRPCClient:
     def __init__(
