@@ -6,7 +6,6 @@ import sys
 import time
 from collections import deque
 from queue import Queue
-import prometheus_client as pc
 
 # from multiprocessing import Process, Queue,
 from threading import Semaphore, Thread
@@ -14,6 +13,7 @@ from threading import Semaphore, Thread
 # from queue import Queue
 import aiortc
 import grpc
+import prometheus_client as pc
 from gst_signalling import GstSession, GstSignallingProducer
 from reachy2_sdk_api import reachy_pb2, reachy_pb2_grpc
 from reachy2_sdk_api.webrtc_bridge_pb2 import (
@@ -67,7 +67,7 @@ class GRPCWebRTCBridge:
     def __init__(self, args: argparse.Namespace) -> None:
         self.logger = logging.getLogger(__name__)
         pc.start_http_server(10001)
-        self.sum_spin = pc.Summary('sdkserver_spin_once_time', 'Time spent during bridge spin_once')
+        # self.sum_time_important_commands = pc.Summary('webrtcbridge_time_important_commands', 'Time spent during handle important commands')
         self.counter_all_commands = pc.Counter('webrtcbridge_all_commands', 'Amount of commands received')
         self.counter_important_commands = pc.Counter('webrtcbridge_important_commands', 'Amount of important commands received')
         self.counter_dropped_commands = pc.Counter('webrtcbridge_dropped_commands', 'Amount of commands dropped')
@@ -219,6 +219,7 @@ class GRPCWebRTCBridge:
             self.counter_all_commands.inc(len(commands.commands))
             # TODO better, temporary message priority
             important_msg = 0
+            dropped_msg = 0
             for cmd in commands.commands:
                 if cmd.HasField("arm_command"):
                     important_msg+= cmd.arm_command.HasField("turn_on")
@@ -242,15 +243,25 @@ class GRPCWebRTCBridge:
             if not important_msg:
                 for cmd in commands.commands:
                     if cmd.HasField("arm_command"):
-                        std_queue[cmd.arm_command.arm_cartesian_goal.id.name].append(cmd.arm_command)
+                        elem = std_queue[cmd.arm_command.arm_cartesian_goal.id.name]
+                        dropped_msg += bool(elem)
+                        elem.append(cmd.arm_command)
                     if cmd.HasField("hand_command"):
-                        std_queue[cmd.hand_command.hand_goal.id.name].append(cmd.hand_command)
+                        elem = std_queue[cmd.hand_command.hand_goal.id.name]
+                        dropped_msg += bool(elem)
+                        elem.append(cmd.hand_command)
                     if cmd.HasField("neck_command"):
-                        std_queue["neck"].append(cmd.neck_command)
+                        elem = std_queue["neck"]
+                        dropped_msg += bool(elem)
+                        elem.append(cmd.neck_command)
                     if cmd.HasField("mobile_base_command"):
-                        std_queue["mobile_base"].append(cmd.mobile_base_command)
+                        elem = std_queue["mobile_base"]
+                        dropped_msg += bool(elem)
+                        elem.append(cmd.mobile_base_command)
             else:
                 important_queue.put(commands)
+
+            self.counter_dropped_commands.inc(dropped_msg)
 
             reentrancte_counter -= 1
 
