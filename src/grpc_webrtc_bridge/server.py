@@ -313,8 +313,9 @@ def handle_important_queue_routine(grpc_client, logger):
 
     sum_important = pc.Summary('webrtcbridge_commands_time_important', 'Time spent during important commands')
     while True:
+        msg = important_queue.get()
         with sum_important.time():
-            grpc_client.handle_commands(important_queue.get())
+            grpc_client.handle_commands(msg)
 
 
 #### MAIN
