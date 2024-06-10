@@ -6,6 +6,8 @@ import sys
 import time
 from collections import deque
 from queue import Queue
+from reachy2_sdk_api.webrtc_bridge_pb2 import AnyCommands
+
 
 # from multiprocessing import Process, Queue,
 from threading import Semaphore, Thread
@@ -217,30 +219,61 @@ class GRPCWebRTCBridge:
                 return
 
             self.counter_all_commands.inc(len(commands.commands))
+            ###############################
             # TODO better, temporary message priority
-            important_msg = 0
+            # HACK: split important and non-important commands to avoid
+            # potentially executing old goal commands (when important commands
+            # are handled)
+            # this will leave only non-important commands in the received commands
+            # in the future, important and non-important commands should be separated
+            # in different proto messages
+            commands_important = AnyCommands()
+            commands_important.CopyFrom(commands)
+            for cmd in commands_important.commands:
+                if cmd.HasField("arm_command"):
+                    cmd.arm_command.ClearField("arm_cartesian_goal")
+                elif cmd.HasField("hand_command"):
+                    cmd.hand_command.ClearField("hand_goal")
+                elif cmd.HasField("neck_command"):
+                    cmd.neck_command.ClearField("neck_goal")
+                elif cmd.HasField("mobile_base_command"):
+                    cmd.mobile_base_command.ClearField("target_direction")
+            ###############################
+            important_msgs = 0
             dropped_msg = 0
+
             for cmd in commands.commands:
                 if cmd.HasField("arm_command"):
-                    important_msg+= cmd.arm_command.HasField("turn_on")
-                    important_msg+= cmd.arm_command.HasField("turn_off")
-                    important_msg+= cmd.arm_command.HasField("speed_limit")
-                    important_msg+= cmd.arm_command.HasField("torque_limit")
+                    part_command = cmd.arm_command
+                    important_fields = ["turn_on", "turn_off", "speed_limit", "torque_limit"]
+                    for field in important_fields:
+                        important_msgs += part_command.HasField(field)
+                        part_command.ClearField(field)
 
                 elif cmd.HasField("hand_command"):
-                    important_msg+= cmd.hand_command.HasField("turn_on")
-                    important_msg+= cmd.hand_command.HasField("turn_off")
+                    part_command = cmd.hand_command
+                    important_fields = ["turn_on", "turn_off"]
+                    for field in important_fields:
+                        important_msgs += part_command.HasField(field)
+                        part_command.ClearField(field)
 
                 elif cmd.HasField("neck_command"):
-                    important_msg+= cmd.neck_command.HasField("turn_on")
-                    important_msg+= cmd.neck_command.HasField("turn_off")
+                    part_command = cmd.neck_command
+                    important_fields = ["turn_on", "turn_off"]
+                    for field in important_fields:
+                        important_msgs += part_command.HasField(field)
+                        part_command.ClearField(field)
 
                 elif cmd.HasField("mobile_base_command"):
-                    important_msg+= cmd.mobile_base_command.HasField("mobile_base_mode")
+                    part_command = cmd.mobile_base_command
+                    important_fields = ["mobile_base_mode"]
+                    for field in important_fields:
+                        important_msgs += part_command.HasField(field)
+                        part_command.ClearField(field)
 
-            self.counter_important_commands.inc(important_msg)
+            self.counter_important_commands.inc(important_msgs)
 
-            if not important_msg:
+            if not important_msgs:
                 for cmd in commands.commands:
                     if cmd.HasField("arm_command"):
                         elem = std_queue[cmd.arm_command.arm_cartesian_goal.id.name]
@@ -259,7 +292,8 @@ class GRPCWebRTCBridge:
                         dropped_msg += bool(elem)
                         elem.append(cmd.mobile_base_command)
             else:
-                important_queue.put(commands)
+                important_queue.put(commands_important)
+                # self.logger.debug(f"important: {commands_important}")
 
             self.counter_dropped_commands.inc(dropped_msg)
 
