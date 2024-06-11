@@ -64,14 +64,15 @@ std_queue = {
 #     "mobile_base": Queue(),
 # }
 
+
 class GRPCWebRTCBridge:
     def __init__(self, args: argparse.Namespace) -> None:
         self.logger = logging.getLogger(__name__)
         pc.start_http_server(10001)
         # self.sum_time_important_commands = pc.Summary('webrtcbridge_time_important_commands', 'Time spent during handle important commands')
-        self.counter_all_commands = pc.Counter('webrtcbridge_all_commands', 'Amount of commands received')
-        self.counter_important_commands = pc.Counter('webrtcbridge_important_commands', 'Amount of important commands received')
-        self.counter_dropped_commands = pc.Counter('webrtcbridge_dropped_commands', 'Amount of commands dropped')
+        self.counter_all_commands = pc.Counter("webrtcbridge_all_commands", "Amount of commands received")
+        self.counter_important_commands = pc.Counter("webrtcbridge_important_commands", "Amount of important commands received")
+        self.counter_dropped_commands = pc.Counter("webrtcbridge_dropped_commands", "Amount of commands dropped")
 
         self.producer = GstSignallingProducer(
             host=args.webrtc_signaling_host,
@@ -332,7 +333,7 @@ def msg_handling(message, logger, part_name, part_handler, summary):
 
 def handle_std_queue_routine(std_queue, part_name, part_handler):
     logger = logging.getLogger(__name__)
-    sum_part = pc.Summary(f'webrtcbridge_commands_time_{part_name}', f'Time spent during {part_name} commands')
+    sum_part = pc.Summary(f"webrtcbridge_commands_time_{part_name}", f"Time spent during {part_name} commands")
 
     while True:
 
@@ -345,7 +346,7 @@ def handle_std_queue_routine(std_queue, part_name, part_handler):
 
 def handle_important_queue_routine(grpc_client, logger):
 
-    sum_important = pc.Summary('webrtcbridge_commands_time_important', 'Time spent during important commands')
+    sum_important = pc.Summary("webrtcbridge_commands_time_important", "Time spent during important commands")
     while True:
         msg = important_queue.get()
         with sum_important.time():

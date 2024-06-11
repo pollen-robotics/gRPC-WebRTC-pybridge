@@ -20,7 +20,6 @@ from reachy2_sdk_api import (
 # sum_base = pc.Summary('grpcwebrtc_client_base_commands', 'Time spent during base commands')
 
 
-
 class GRPCClient:
     def __init__(
         self,
