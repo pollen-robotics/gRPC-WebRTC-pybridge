@@ -1,5 +1,4 @@
 import logging
-from typing import AsyncGenerator
 
 import grpc
 from google.protobuf.empty_pb2 import Empty

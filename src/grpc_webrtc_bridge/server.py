@@ -1,7 +1,6 @@
 import argparse
 import asyncio
 import logging
-import queue
 import sys
 import time
 from collections import deque
@@ -67,7 +66,8 @@ class GRPCWebRTCBridge:
     def __init__(self, args: argparse.Namespace) -> None:
         self.logger = logging.getLogger(__name__)
         pc.start_http_server(10001)
-        # self.sum_time_important_commands = pc.Summary('webrtcbridge_time_important_commands', 'Time spent during handle important commands')
+        # self.sum_time_important_commands = pc.Summary('webrtcbridge_time_important_commands',
+        #                                               'Time spent during handle important commands')
         self.counter_all_commands = pc.Counter("webrtcbridge_all_commands", "Amount of commands received")
         self.counter_important_commands = pc.Counter("webrtcbridge_important_commands", "Amount of important commands received")
         self.counter_dropped_commands = pc.Counter("webrtcbridge_dropped_commands", "Amount of commands dropped")
@@ -162,7 +162,6 @@ class GRPCWebRTCBridge:
 
         @reachy_state_datachannel.on("open")  # type: ignore[misc]
         def on_reachy_state_datachannel_open() -> None:
-
             reachy_stub_async = reachy_pb2_grpc.ReachyServiceStub(
                 grpc.aio.insecure_channel(f"{grpc_client.host}:{grpc_client.port}")
             )
@@ -196,7 +195,6 @@ class GRPCWebRTCBridge:
         async def on_reachy_command_datachannel_message(
             message: bytes,
         ) -> None:
-
             global last_freq_counter
             global last_freq_update
             global last_drop_counter
@@ -326,7 +324,8 @@ def msg_handling(message, logger, part_name, part_handler, summary):
         last_freq_update[part_name] = now
 
 
-###### Routines
+####################
+# Routines
 
 
 def handle_std_queue_routine(std_queue, part_name, part_handler):
@@ -334,7 +333,6 @@ def handle_std_queue_routine(std_queue, part_name, part_handler):
     sum_part = pc.Summary(f"webrtcbridge_commands_time_{part_name}", f"Time spent during {part_name} commands")
 
     while True:
-
         try:
             msg = std_queue.pop()
             msg_handling(msg, logger, part_name, part_handler, sum_part)
@@ -343,7 +341,6 @@ def handle_std_queue_routine(std_queue, part_name, part_handler):
 
 
 def handle_important_queue_routine(grpc_client, logger):
-
     sum_important = pc.Summary("webrtcbridge_commands_time_important", "Time spent during important commands")
     while True:
         msg = important_queue.get()
@@ -351,7 +348,8 @@ def handle_important_queue_routine(grpc_client, logger):
             grpc_client.handle_commands(msg)
 
 
-#### MAIN
+####################
+# MAIN
 
 
 def main() -> int:  # noqa: C901
