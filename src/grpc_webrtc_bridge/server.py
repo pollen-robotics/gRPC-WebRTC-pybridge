@@ -6,8 +6,6 @@ import sys
 import time
 from collections import deque
 from queue import Queue
-from reachy2_sdk_api.webrtc_bridge_pb2 import AnyCommands
-
 
 # from multiprocessing import Process, Queue,
 from threading import Semaphore, Thread
