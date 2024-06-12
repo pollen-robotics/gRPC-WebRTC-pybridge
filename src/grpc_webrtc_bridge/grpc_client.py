@@ -32,8 +32,11 @@ class GRPCClient:
         self.port = port
         # Prepare channel for states/commands
         self.synchro_channel = grpc.insecure_channel(f"{host}:{port}")
+        self.async_channel = grpc.aio.insecure_channel(f"{host}:{port}")
 
         self.reachy_stub_synchro = reachy_pb2_grpc.ReachyServiceStub(self.synchro_channel)
+        self.reachy_stub_async = reachy_pb2_grpc.ReachyServiceStub(self.async_channel)
+            
         self.arm_stub = arm_pb2_grpc.ArmServiceStub(self.synchro_channel)
         self.hand_stub = hand_pb2_grpc.HandServiceStub(self.synchro_channel)
         self.head_stub = head_pb2_grpc.HeadServiceStub(self.synchro_channel)
