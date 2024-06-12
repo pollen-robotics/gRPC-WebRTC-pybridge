@@ -5,7 +5,7 @@ import os
 import sys
 import time
 from collections import deque
-from queue import Queue
+from queue import Queue, Empty
 
 # from multiprocessing import Process, Queue,
 from threading import Thread
@@ -57,6 +57,8 @@ class GRPCWebRTCBridge:
             name="grpc_webrtc_bridge",
         )
 
+        self.bridge_running = True
+
         @self.producer.on("new_session")  # type: ignore[misc]
         def on_new_session(session: GstSession) -> None:
             pc = session.pc
@@ -88,6 +90,8 @@ class GRPCWebRTCBridge:
         await self.producer.serve4ever()
 
     async def close(self) -> None:
+        self.logger.info("Close bridge")
+        self.bridge_running = False
         await self.producer.close()
 
     # Handle service request
@@ -131,7 +135,7 @@ class GRPCWebRTCBridge:
             async for state in grpc_client.get_reachy_state(
                 request.reachy_id,
                 request.update_frequency,
-            ):
+            ):           
                 byte_data = state.SerializeToString()
                 gbyte_data = GLib.Bytes.new(byte_data)
                 channel.send_data(gbyte_data)
@@ -283,11 +287,11 @@ def msg_handling(message, logger, part_name, part_handler, summary, last_freq_co
 # Routines
 
 
-def handle_std_queue_routine(std_queue, part_name, part_handler, last_freq_counter, last_freq_update):
+def handle_std_queue_routine(std_queue, part_name, part_handler, last_freq_counter, last_freq_update, bridge: GRPCWebRTCBridge):
     logger = logging.getLogger(__name__)
     sum_part = pc.Summary(f"webrtcbridge_commands_time_{part_name}", f"Time spent during {part_name} commands")
 
-    while True:
+    while bridge.bridge_running:
         try:
             msg = std_queue.pop()
             msg_handling(msg, logger, part_name, part_handler, sum_part, last_freq_counter, last_freq_update)
@@ -297,11 +301,13 @@ def handle_std_queue_routine(std_queue, part_name, part_handler, last_freq_count
 
 def handle_important_queue_routine(grpc_client, bridge: GRPCWebRTCBridge):
     sum_important = pc.Summary("webrtcbridge_commands_time_important", "Time spent during important commands")
-    while True:
-        msg = bridge.important_queue.get()
-        with sum_important.time():
-            grpc_client.handle_commands(msg)
-
+    while bridge.bridge_running:
+        try: 
+            msg = bridge.important_queue.get(timeout=1)
+            with sum_important.time():
+                grpc_client.handle_commands(msg)
+        except Empty:
+            pass # need to proerly close the thread
 
 ####################
 # MAIN
@@ -375,6 +381,7 @@ def main() -> int:  # noqa: C901
         "mobile_base": time.time(),
     }
 
+
     for part in bridge.std_queue.keys():
         Thread(
             target=handle_std_queue_routine,
@@ -384,6 +391,7 @@ def main() -> int:  # noqa: C901
                 part_handlers[part],
                 last_freq_counter,
                 last_freq_update,
+                bridge
             ),
         ).start()
 
@@ -394,7 +402,7 @@ def main() -> int:  # noqa: C901
             bridge,
         ),
     ).start()
-
+    
     loop = asyncio.get_event_loop()
     try:
         loop.run_until_complete(bridge.serve4ever())
