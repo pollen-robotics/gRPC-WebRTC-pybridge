@@ -5,10 +5,11 @@ import os
 import sys
 import time
 from collections import deque
-from queue import Queue, Empty
+from queue import Empty, Queue
 
 # from multiprocessing import Process, Queue,
 from threading import Thread
+from typing import Dict, List, Callable
 
 import gi
 
@@ -17,6 +18,7 @@ import prometheus_client as pc
 from gst_signalling import GstSignallingProducer
 from gst_signalling.gst_abstract_role import GstSession
 from reachy2_sdk_api.webrtc_bridge_pb2 import (
+    AnyCommand,
     AnyCommands,
     Connect,
     ConnectionStatus,
@@ -41,8 +43,8 @@ class GRPCWebRTCBridge:
         self.counter_important_commands = pc.Counter("webrtcbridge_important_commands", "Amount of important commands received")
         self.counter_dropped_commands = pc.Counter("webrtcbridge_dropped_commands", "Amount of commands dropped")
 
-        self.important_queue = Queue()
-        self.std_queue = {
+        self.important_queue : Queue[AnyCommands] = Queue()
+        self.std_queue : Dict[str, deque[AnyCommand]] = {
             "neck": deque(maxlen=1),
             "r_arm": deque(maxlen=1),
             "l_arm": deque(maxlen=1),
@@ -167,12 +169,12 @@ class GRPCWebRTCBridge:
 
         return ServiceResponse()
 
-    def _process_important_fields(self, important_msgs, part_command, important_fields) -> None:
+    def _process_important_fields(self, important_msgs : AnyCommands, part_command : AnyCommand, important_fields : List[str]) -> None:
         for field in important_fields:
             important_msgs += part_command.HasField(field)
             part_command.ClearField(field)
 
-    def _process_important_commands(self, commands) -> int:
+    def _process_important_commands(self, commands : AnyCommands) -> int:
         important_msgs = 0
         for cmd in commands.commands:
             if cmd.HasField("arm_command"):
@@ -191,7 +193,7 @@ class GRPCWebRTCBridge:
                 self.logger.warning(f"Unkown command: {cmd}")
         return important_msgs
 
-    def _insert_and_drop(self, queue_name, command) -> bool:
+    def _insert_and_drop(self, queue_name : str, command : AnyCommand) -> bool:
         dropped = True
         try:
             elem = self.std_queue[queue_name]
@@ -201,7 +203,7 @@ class GRPCWebRTCBridge:
             self.logger.warning("Dropping invalid command")
         return dropped
 
-    def _create_important_commands(self, commands):
+    def _create_important_commands(self, commands : AnyCommands) -> AnyCommands:
         commands_important = AnyCommands()
         commands_important.CopyFrom(commands)
         for cmd in commands_important.commands:
@@ -222,7 +224,7 @@ class GRPCWebRTCBridge:
         commands.ParseFromString(message.get_data())
 
         if not commands.commands:
-            self.logger.waring("No command or incorrect message received {message}")
+            self.logger.warning("No command or incorrect message received {message}")
             return
 
         self.counter_all_commands.inc(len(commands.commands))
@@ -267,7 +269,7 @@ class GRPCWebRTCBridge:
         return ServiceResponse()
 
 
-def msg_handling(message, logger, part_name, part_handler, summary, last_freq_counter, last_freq_update):
+def msg_handling(message : AnyCommand, logger : logging.Logger, part_name : str, part_handler : Callable[[GRPCClient], None], summary : pc.Summary, last_freq_counter : Dict[str, int], last_freq_update : Dict[str, float]) -> None:
     last_freq_counter[part_name] += 1
 
     with summary.time():
@@ -287,7 +289,7 @@ def msg_handling(message, logger, part_name, part_handler, summary, last_freq_co
 # Routines
 
 
-def handle_std_queue_routine(std_queue, part_name, part_handler, last_freq_counter, last_freq_update, bridge: GRPCWebRTCBridge):
+def handle_std_queue_routine(std_queue : deque[AnyCommand], part_name : str, part_handler : Callable[[GRPCClient], None], last_freq_counter : Dict[str, int], last_freq_update : Dict[str, float], bridge: GRPCWebRTCBridge) -> None:
     logger = logging.getLogger(__name__)
     sum_part = pc.Summary(f"webrtcbridge_commands_time_{part_name}", f"Time spent during {part_name} commands")
 
@@ -299,7 +301,7 @@ def handle_std_queue_routine(std_queue, part_name, part_handler, last_freq_count
             time.sleep(0.001)
 
 
-def handle_important_queue_routine(grpc_client, bridge: GRPCWebRTCBridge):
+def handle_important_queue_routine(grpc_client : GRPCClient, bridge: GRPCWebRTCBridge) -> None:
     sum_important = pc.Summary("webrtcbridge_commands_time_important", "Time spent during important commands")
     while bridge.bridge_running:
         try: 
