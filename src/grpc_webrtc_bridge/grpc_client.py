@@ -66,55 +66,60 @@ class GRPCClient:
     ) -> None:
         # self.logger.info(f"Received message: {commands}")
 
-        # TODO: Could this be done in parallel?
         for cmd in commands.commands:
             if cmd.HasField("arm_command"):
                 self.handle_arm_command(cmd.arm_command)
-            if cmd.HasField("hand_command"):
+            elif cmd.HasField("hand_command"):
                 self.handle_hand_command(cmd.hand_command)
-            if cmd.HasField("neck_command"):
+            elif cmd.HasField("neck_command"):
                 self.handle_neck_command(cmd.neck_command)
-            if cmd.HasField("mobile_base_command"):
+            elif cmd.HasField("mobile_base_command"):
                 self.handle_mobile_base_command(cmd.mobile_base_command)
+            else:
+                self.logger.warning("Unknown command : {}", cmd)
 
     def handle_arm_command(self, cmd: webrtc_bridge_pb2.ArmCommand) -> None:
-        # TODO: Could this be done in parallel?
         if cmd.HasField("arm_cartesian_goal"):
             self.arm_stub.SendArmCartesianGoal(cmd.arm_cartesian_goal)
-        if cmd.HasField("turn_on"):
+        elif cmd.HasField("turn_on"):
             self.arm_stub.TurnOn(cmd.turn_on)
-        if cmd.HasField("turn_off"):
+        elif cmd.HasField("turn_off"):
             self.arm_stub.TurnOff(cmd.turn_off)
-        if cmd.HasField("speed_limit"):
+        elif cmd.HasField("speed_limit"):
             self.arm_stub.SetSpeedLimit(cmd.speed_limit)
-        if cmd.HasField("torque_limit"):
+        elif cmd.HasField("torque_limit"):
             self.arm_stub.SetTorqueLimit(cmd.torque_limit)
+        else:
+            self.logger.warning("Unknown command : {}", cmd)
 
     def handle_hand_command(self, cmd: webrtc_bridge_pb2.HandCommand) -> None:
-        # TODO: Could this be done in parallel?
         if cmd.HasField("hand_goal"):
             self.hand_stub.SetHandPosition(cmd.hand_goal)
-        if cmd.HasField("turn_on"):
+        elif cmd.HasField("turn_on"):
             self.hand_stub.TurnOn(cmd.turn_on)
-        if cmd.HasField("turn_off"):
+        elif cmd.HasField("turn_off"):
             self.hand_stub.TurnOff(cmd.turn_off)
+        else:
+            self.logger.warning("Unknown command : {}", cmd)
 
     def handle_neck_command(self, cmd: webrtc_bridge_pb2.NeckCommand) -> None:
-        # TODO: Could this be done in parallel?
         if cmd.HasField("neck_goal"):
             self.head_stub.SendNeckJointGoal(cmd.neck_goal)
-        if cmd.HasField("turn_on"):
+        elif cmd.HasField("turn_on"):
             self.head_stub.TurnOn(cmd.turn_on)
-        if cmd.HasField("turn_off"):
+        elif cmd.HasField("turn_off"):
             self.head_stub.TurnOff(cmd.turn_off)
-        if cmd.HasField("speed_limit"):
+        elif cmd.HasField("speed_limit"):
             self.head_stub.SetSpeedLimit(cmd.speed_limit)
-        if cmd.HasField("torque_limit"):
+        elif cmd.HasField("torque_limit"):
             self.head_stub.SetTorqueLimit(cmd.torque_limit)
+        else:
+            self.logger.warning("Unknown command : {}", cmd)
 
     def handle_mobile_base_command(self, cmd: webrtc_bridge_pb2.MobileBaseCommand) -> None:
-        # TODO: Could this be done in parallel?
         if cmd.HasField("target_direction"):
             self.mb_mobility_stub.SendDirection(cmd.target_direction)
-        if cmd.HasField("mobile_base_mode"):
+        elif cmd.HasField("mobile_base_mode"):
             self.mb_utility_stub.SetZuuuMode(cmd.mobile_base_mode)
+        else:
+            self.logger.warning("Unknown command : {}", cmd)
