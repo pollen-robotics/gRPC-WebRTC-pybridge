@@ -1,18 +1,19 @@
 import argparse
 import asyncio
 import logging
+import os
 import sys
 import time
 from collections import deque
 from queue import Queue
-import os
 
 # from multiprocessing import Process, Queue,
 from threading import Thread
 
+import gi
+
 # from queue import Queue
 import prometheus_client as pc
-import gi
 from gst_signalling import GstSignallingProducer
 from gst_signalling.gst_abstract_role import GstSession
 from reachy2_sdk_api.webrtc_bridge_pb2 import (
@@ -167,6 +168,25 @@ class GRPCWebRTCBridge:
             important_msgs += part_command.HasField(field)
             part_command.ClearField(field)
 
+    def _process_important_commands(self, commands) -> int:
+        important_msgs = 0
+        for cmd in commands.commands:
+            if cmd.HasField("arm_command"):
+                self._process_important_fields(
+                    important_msgs, cmd.arm_command, ["turn_on", "turn_off", "speed_limit", "torque_limit"]
+                )
+            elif cmd.HasField("hand_command"):
+                self._process_important_fields(important_msgs, cmd.hand_command, ["turn_on", "turn_off"])
+            elif cmd.HasField("neck_command"):
+                self._process_important_fields(
+                    important_msgs, cmd.neck_command, ["turn_on", "turn_off", "speed_limit", "torque_limit"]
+                )
+            elif cmd.HasField("mobile_base_command"):
+                self._process_important_fields(important_msgs, cmd.mobile_base_command, ["mobile_base_mode"])
+            else:
+                self.logger.warning(f"Unkown command: {cmd}")
+        return important_msgs
+
     def _insert_and_drop(self, queue_name, command) -> bool:
         dropped = True
         try:
@@ -174,8 +194,22 @@ class GRPCWebRTCBridge:
             dropped = bool(elem)  # True means len(element) > 0
             elem.append(command)  # drop current element if any (maxlen=1)
         except KeyError:
-            self.logger.warning(f"Dropping invalid command")
+            self.logger.warning("Dropping invalid command")
         return dropped
+
+    def _create_important_commands(self, commands):
+        commands_important = AnyCommands()
+        commands_important.CopyFrom(commands)
+        for cmd in commands_important.commands:
+            if cmd.HasField("arm_command"):
+                cmd.arm_command.ClearField("arm_cartesian_goal")
+            elif cmd.HasField("hand_command"):
+                cmd.hand_command.ClearField("hand_goal")
+            elif cmd.HasField("neck_command"):
+                cmd.neck_command.ClearField("neck_goal")
+            elif cmd.HasField("mobile_base_command"):
+                cmd.mobile_base_command.ClearField("target_direction")
+        return commands_important
 
     def on_reachy_command_datachannel_message(
         self, data_channel: GstWebRTC.WebRTCDataChannel, message: GLib.Bytes, grpc_client: GRPCClient
@@ -196,36 +230,11 @@ class GRPCWebRTCBridge:
         # this will leave only non-important commands in the received commands
         # in the future, important and non-important commands should be separated
         # in different proto messages
-        commands_important = AnyCommands()
-        commands_important.CopyFrom(commands)
-        for cmd in commands_important.commands:
-            if cmd.HasField("arm_command"):
-                cmd.arm_command.ClearField("arm_cartesian_goal")
-            elif cmd.HasField("hand_command"):
-                cmd.hand_command.ClearField("hand_goal")
-            elif cmd.HasField("neck_command"):
-                cmd.neck_command.ClearField("neck_goal")
-            elif cmd.HasField("mobile_base_command"):
-                cmd.mobile_base_command.ClearField("target_direction")
+        commands_important = self._create_important_commands(commands)
         ###############################
-        important_msgs = 0
         dropped_msg = 0
 
-        for cmd in commands.commands:
-            if cmd.HasField("arm_command"):
-                self._process_important_fields(
-                    important_msgs, cmd.arm_command, ["turn_on", "turn_off", "speed_limit", "torque_limit"]
-                )
-            elif cmd.HasField("hand_command"):
-                self._process_important_fields(important_msgs, cmd.hand_command, ["turn_on", "turn_off"])
-            elif cmd.HasField("neck_command"):
-                self._process_important_fields(
-                    important_msgs, cmd.neck_command, ["turn_on", "turn_off", "speed_limit", "torque_limit"]
-                )
-            elif cmd.HasField("mobile_base_command"):
-                self._process_important_fields(important_msgs, cmd.mobile_base_command, ["mobile_base_mode"])
-            else:
-                self.logger.warning(f"Unkown command: {cmd}")
+        important_msgs = self._process_important_commands(commands)
 
         self.counter_important_commands.inc(important_msgs)
 
