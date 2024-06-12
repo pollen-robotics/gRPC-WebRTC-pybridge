@@ -75,7 +75,7 @@ class GRPCClient:
             elif cmd.HasField("mobile_base_command"):
                 self.handle_mobile_base_command(cmd.mobile_base_command)
             else:
-                self.logger.warning("Unknown command : {}", cmd)
+                self.logger.warning(f"Unknown command : {cmd}")
 
     def handle_arm_command(self, cmd: webrtc_bridge_pb2.ArmCommand) -> None:
         if cmd.HasField("arm_cartesian_goal"):
@@ -89,7 +89,7 @@ class GRPCClient:
         elif cmd.HasField("torque_limit"):
             self.arm_stub.SetTorqueLimit(cmd.torque_limit)
         else:
-            self.logger.warning("Unknown command : {}", cmd)
+            self.logger.warning(f"Unknown command : {cmd}")
 
     def handle_hand_command(self, cmd: webrtc_bridge_pb2.HandCommand) -> None:
         if cmd.HasField("hand_goal"):
@@ -99,7 +99,7 @@ class GRPCClient:
         elif cmd.HasField("turn_off"):
             self.hand_stub.TurnOff(cmd.turn_off)
         else:
-            self.logger.warning("Unknown command : {}", cmd)
+            self.logger.warning(f"Unknown command : {cmd}")
 
     def handle_neck_command(self, cmd: webrtc_bridge_pb2.NeckCommand) -> None:
         if cmd.HasField("neck_goal"):
@@ -113,7 +113,7 @@ class GRPCClient:
         elif cmd.HasField("torque_limit"):
             self.head_stub.SetTorqueLimit(cmd.torque_limit)
         else:
-            self.logger.warning("Unknown command : {}", cmd)
+            self.logger.warning(f"Unknown command : {cmd}")
 
     def handle_mobile_base_command(self, cmd: webrtc_bridge_pb2.MobileBaseCommand) -> None:
         if cmd.HasField("target_direction"):
@@ -121,4 +121,4 @@ class GRPCClient:
         elif cmd.HasField("mobile_base_mode"):
             self.mb_utility_stub.SetZuuuMode(cmd.mobile_base_mode)
         else:
-            self.logger.warning("Unknown command : {}", cmd)
+            self.logger.warning(f"Unknown command : {cmd}")

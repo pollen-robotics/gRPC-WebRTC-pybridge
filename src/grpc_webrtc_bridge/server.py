@@ -162,6 +162,21 @@ class GRPCWebRTCBridge:
 
         return ServiceResponse()
 
+    def _process_important_fields(self, important_msgs, part_command, important_fields) -> None:
+        for field in important_fields:
+            important_msgs += part_command.HasField(field)
+            part_command.ClearField(field)
+
+    def _insert_and_drop(self, queue_name, command) -> bool:
+        dropped = True
+        try:
+            elem = self.std_queue[queue_name]
+            dropped = bool(elem)  # True means len(element) > 0
+            elem.append(command)  # drop current element if any (maxlen=1)
+        except KeyError:
+            self.logger.warning(f"Dropping invalid command")
+        return dropped
+
     def on_reachy_command_datachannel_message(
         self, data_channel: GstWebRTC.WebRTCDataChannel, message: GLib.Bytes, grpc_client: GRPCClient
     ) -> None:
@@ -198,53 +213,34 @@ class GRPCWebRTCBridge:
 
         for cmd in commands.commands:
             if cmd.HasField("arm_command"):
-                part_command = cmd.arm_command
-                important_fields = ["turn_on", "turn_off", "speed_limit", "torque_limit"]
-                for field in important_fields:
-                    important_msgs += part_command.HasField(field)
-                    part_command.ClearField(field)
-
+                self._process_important_fields(
+                    important_msgs, cmd.arm_command, ["turn_on", "turn_off", "speed_limit", "torque_limit"]
+                )
             elif cmd.HasField("hand_command"):
-                part_command = cmd.hand_command
-                important_fields = ["turn_on", "turn_off"]
-                for field in important_fields:
-                    important_msgs += part_command.HasField(field)
-                    part_command.ClearField(field)
-
+                self._process_important_fields(important_msgs, cmd.hand_command, ["turn_on", "turn_off"])
             elif cmd.HasField("neck_command"):
-                part_command = cmd.neck_command
-                important_fields = ["turn_on", "turn_off"]
-                for field in important_fields:
-                    important_msgs += part_command.HasField(field)
-                    part_command.ClearField(field)
-
+                self._process_important_fields(
+                    important_msgs, cmd.neck_command, ["turn_on", "turn_off", "speed_limit", "torque_limit"]
+                )
             elif cmd.HasField("mobile_base_command"):
-                part_command = cmd.mobile_base_command
-                important_fields = ["mobile_base_mode"]
-                for field in important_fields:
-                    important_msgs += part_command.HasField(field)
-                    part_command.ClearField(field)
+                self._process_important_fields(important_msgs, cmd.mobile_base_command, ["mobile_base_mode"])
+            else:
+                self.logger.warning(f"Unkown command: {cmd}")
 
         self.counter_important_commands.inc(important_msgs)
 
         if not important_msgs:
             for cmd in commands.commands:
                 if cmd.HasField("arm_command"):
-                    elem = self.std_queue[cmd.arm_command.arm_cartesian_goal.id.name]
-                    dropped_msg += bool(elem)  # false/0 is len(elem) = 0
-                    elem.append(cmd.arm_command)  # drop current element if any (maxlen=1)
-                if cmd.HasField("hand_command"):
-                    elem = self.std_queue[cmd.hand_command.hand_goal.id.name]
-                    dropped_msg += bool(elem)
-                    elem.append(cmd.hand_command)
-                if cmd.HasField("neck_command"):
-                    elem = self.std_queue["neck"]
-                    dropped_msg += bool(elem)
-                    elem.append(cmd.neck_command)
-                if cmd.HasField("mobile_base_command"):
-                    elem = self.std_queue["mobile_base"]
-                    dropped_msg += bool(elem)
-                    elem.append(cmd.mobile_base_command)
+                    dropped_msg += self._insert_and_drop(cmd.arm_command.arm_cartesian_goal.id.name, cmd.arm_command)
+                elif cmd.HasField("hand_command"):
+                    dropped_msg += self._insert_and_drop(cmd.hand_command.hand_goal.id.name, cmd.hand_command)
+                elif cmd.HasField("neck_command"):
+                    dropped_msg += self._insert_and_drop("neck", cmd.neck_command)
+                elif cmd.HasField("mobile_base_command"):
+                    dropped_msg += self._insert_and_drop("mobile_base", cmd.mobile_base_command)
+                else:
+                    self.logger.warning(f"Unkown command: {cmd}")
         else:
             self.important_queue.put(commands_important)
             # self.logger.debug(f"important: {commands_important}")
