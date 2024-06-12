@@ -8,7 +8,7 @@ from queue import Queue
 import os
 
 # from multiprocessing import Process, Queue,
-from threading import Semaphore, Thread
+from threading import Thread
 
 # from queue import Queue
 import prometheus_client as pc
@@ -29,42 +29,6 @@ gi.require_version("Gst", "1.0")
 
 from gi.repository import GLib, Gst, GstWebRTC  # noqa : E402
 
-last_freq_counter = {"neck": 0, "r_arm": 0, "l_arm": 0, "r_hand": 0, "l_hand": 0, "mobile_base": 0}
-last_freq_update = {
-    "neck": time.time(),
-    "r_arm": time.time(),
-    "l_arm": time.time(),
-    "r_hand": time.time(),
-    "l_hand": time.time(),
-    "mobile_base": time.time(),
-}
-last_drop_counter = 0
-freq_rates = []
-drop_rates = []
-drop_array = []
-reentrancte_counter = 0
-parse_time_arr = []
-test_time_arr = []
-init = False
-# std_queue = deque(maxlen=1)
-important_queue = Queue()
-std_queue = {
-    "neck": deque(maxlen=1),
-    "r_arm": deque(maxlen=1),
-    "l_arm": deque(maxlen=1),
-    "r_hand": deque(maxlen=1),
-    "l_hand": deque(maxlen=1),
-    "mobile_base": deque(maxlen=1),
-}
-# important_queue = {
-#     "neck": Queue(),
-#     "r_arm": Queue(),
-#     "l_arm": Queue(),
-#     "r_hand": Queue(),
-#     "l_hand": Queue(),
-#     "mobile_base": Queue(),
-# }
-
 
 class GRPCWebRTCBridge:
     def __init__(self, args: argparse.Namespace) -> None:
@@ -76,13 +40,21 @@ class GRPCWebRTCBridge:
         self.counter_important_commands = pc.Counter("webrtcbridge_important_commands", "Amount of important commands received")
         self.counter_dropped_commands = pc.Counter("webrtcbridge_dropped_commands", "Amount of commands dropped")
 
+        self.important_queue = Queue()
+        self.std_queue = {
+            "neck": deque(maxlen=1),
+            "r_arm": deque(maxlen=1),
+            "l_arm": deque(maxlen=1),
+            "r_hand": deque(maxlen=1),
+            "l_hand": deque(maxlen=1),
+            "mobile_base": deque(maxlen=1),
+        }
+
         self.producer = GstSignallingProducer(
             host=args.webrtc_signaling_host,
             port=args.webrtc_signaling_port,
             name="grpc_webrtc_bridge",
         )
-        # self.smart_lock = Lock()
-        self.smart_lock = Semaphore(1)
 
         @self.producer.on("new_session")  # type: ignore[misc]
         def on_new_session(session: GstSession) -> None:
@@ -193,19 +165,6 @@ class GRPCWebRTCBridge:
     def on_reachy_command_datachannel_message(
         self, data_channel: GstWebRTC.WebRTCDataChannel, message: GLib.Bytes, grpc_client: GRPCClient
     ) -> None:
-        global last_freq_counter
-        global last_freq_update
-        global last_drop_counter
-        global freq_rates
-        global drop_rates
-        global init
-        global drop_array
-        global reentrancte_counter
-        global parse_time_arr
-        global test_time_arr
-        global msg_queue
-        reentrancte_counter += 1
-
         commands = AnyCommands()
         commands.ParseFromString(message.get_data())
 
@@ -271,28 +230,26 @@ class GRPCWebRTCBridge:
         if not important_msgs:
             for cmd in commands.commands:
                 if cmd.HasField("arm_command"):
-                    elem = std_queue[cmd.arm_command.arm_cartesian_goal.id.name]
-                    dropped_msg += bool(elem)
-                    elem.append(cmd.arm_command)
+                    elem = self.std_queue[cmd.arm_command.arm_cartesian_goal.id.name]
+                    dropped_msg += bool(elem)  # false/0 is len(elem) = 0
+                    elem.append(cmd.arm_command)  # drop current element if any (maxlen=1)
                 if cmd.HasField("hand_command"):
-                    elem = std_queue[cmd.hand_command.hand_goal.id.name]
+                    elem = self.std_queue[cmd.hand_command.hand_goal.id.name]
                     dropped_msg += bool(elem)
                     elem.append(cmd.hand_command)
                 if cmd.HasField("neck_command"):
-                    elem = std_queue["neck"]
+                    elem = self.std_queue["neck"]
                     dropped_msg += bool(elem)
                     elem.append(cmd.neck_command)
                 if cmd.HasField("mobile_base_command"):
-                    elem = std_queue["mobile_base"]
+                    elem = self.std_queue["mobile_base"]
                     dropped_msg += bool(elem)
                     elem.append(cmd.mobile_base_command)
         else:
-            important_queue.put(commands_important)
+            self.important_queue.put(commands_important)
             # self.logger.debug(f"important: {commands_important}")
 
         self.counter_dropped_commands.inc(dropped_msg)
-
-        reentrancte_counter -= 1
 
     async def handle_disconnect_request(self) -> ServiceResponse:
         # TODO: implement me
@@ -301,10 +258,7 @@ class GRPCWebRTCBridge:
         return ServiceResponse()
 
 
-def msg_handling(message, logger, part_name, part_handler, summary):
-    global last_freq_counter
-    global last_freq_update
-
+def msg_handling(message, logger, part_name, part_handler, summary, last_freq_counter, last_freq_update):
     last_freq_counter[part_name] += 1
 
     with summary.time():
@@ -324,22 +278,22 @@ def msg_handling(message, logger, part_name, part_handler, summary):
 # Routines
 
 
-def handle_std_queue_routine(std_queue, part_name, part_handler):
+def handle_std_queue_routine(std_queue, part_name, part_handler, last_freq_counter, last_freq_update):
     logger = logging.getLogger(__name__)
     sum_part = pc.Summary(f"webrtcbridge_commands_time_{part_name}", f"Time spent during {part_name} commands")
 
     while True:
         try:
             msg = std_queue.pop()
-            msg_handling(msg, logger, part_name, part_handler, sum_part)
+            msg_handling(msg, logger, part_name, part_handler, sum_part, last_freq_counter, last_freq_update)
         except IndexError:
             time.sleep(0.001)
 
 
-def handle_important_queue_routine(grpc_client, logger):
+def handle_important_queue_routine(grpc_client, bridge: GRPCWebRTCBridge):
     sum_important = pc.Summary("webrtcbridge_commands_time_important", "Time spent during important commands")
     while True:
-        msg = important_queue.get()
+        msg = bridge.important_queue.get()
         with sum_important.time():
             grpc_client.handle_commands(msg)
 
@@ -406,13 +360,25 @@ def main() -> int:  # noqa: C901
         "mobile_base": grpc_client.handle_mobile_base_command,
     }
 
-    for part in std_queue.keys():
+    last_freq_counter = {"neck": 0, "r_arm": 0, "l_arm": 0, "r_hand": 0, "l_hand": 0, "mobile_base": 0}
+    last_freq_update = {
+        "neck": time.time(),
+        "r_arm": time.time(),
+        "l_arm": time.time(),
+        "r_hand": time.time(),
+        "l_hand": time.time(),
+        "mobile_base": time.time(),
+    }
+
+    for part in bridge.std_queue.keys():
         Thread(
             target=handle_std_queue_routine,
             args=(
-                std_queue[part],
+                bridge.std_queue[part],
                 part,
                 part_handlers[part],
+                last_freq_counter,
+                last_freq_update,
             ),
         ).start()
 
@@ -420,7 +386,7 @@ def main() -> int:  # noqa: C901
         target=handle_important_queue_routine,
         args=(
             grpc_client,
-            bridge.logger,
+            bridge,
         ),
     ).start()
 
