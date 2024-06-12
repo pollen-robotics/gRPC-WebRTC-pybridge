@@ -1,4 +1,5 @@
 import logging
+from typing import AsyncGenerator
 
 import grpc
 from google.protobuf.empty_pb2 import Empty
@@ -45,19 +46,19 @@ class GRPCClient:
     def get_reachy(self) -> reachy_pb2.Reachy:
         return self.reachy_stub_synchro.GetReachy(Empty())
 
-    # # # # # # Retrieve Reachy entire state
-    # # # # # async def get_reachy_state(
-    # # # # #     self,
-    # # # # #     reachy_id: reachy_pb2.ReachyId,
-    # # # # #     publish_frequency: float,
-    # # # # # ) -> AsyncGenerator[reachy_pb2.ReachyState, None]:
-    # # # # #     stream_req = reachy_pb2.ReachyStreamStateRequest(
-    # # # # #         id=reachy_id,
-    # # # # #         publish_frequency=publish_frequency,
-    # # # # #     )
+    # Retrieve Reachy entire state
+    async def get_reachy_state(
+        self,
+        reachy_id: reachy_pb2.ReachyId,
+        publish_frequency: float,
+    ) -> AsyncGenerator[reachy_pb2.ReachyState, None]:
+        stream_req = reachy_pb2.ReachyStreamStateRequest(
+            id=reachy_id,
+            publish_frequency=publish_frequency,
+        )
 
-    # # # # #     async for state in self.reachy_stub_async.StreamReachyState(stream_req):
-    # # # # #         yield state
+        async for state in self.reachy_stub_async.StreamReachyState(stream_req):
+            yield state
 
     # Send Commands (torque and cartesian targets)
     def handle_commands(
