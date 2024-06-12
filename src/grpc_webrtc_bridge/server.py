@@ -9,7 +9,7 @@ from queue import Empty, Queue
 
 # from multiprocessing import Process, Queue,
 from threading import Thread
-from typing import Dict, List, Callable
+from typing import Callable, Dict, List
 
 import gi
 
@@ -43,8 +43,8 @@ class GRPCWebRTCBridge:
         self.counter_important_commands = pc.Counter("webrtcbridge_important_commands", "Amount of important commands received")
         self.counter_dropped_commands = pc.Counter("webrtcbridge_dropped_commands", "Amount of commands dropped")
 
-        self.important_queue : Queue[AnyCommands] = Queue()
-        self.std_queue : Dict[str, deque[AnyCommand]] = {
+        self.important_queue: Queue[AnyCommands] = Queue()
+        self.std_queue: Dict[str, deque[AnyCommand]] = {
             "neck": deque(maxlen=1),
             "r_arm": deque(maxlen=1),
             "l_arm": deque(maxlen=1),
@@ -137,7 +137,7 @@ class GRPCWebRTCBridge:
             async for state in grpc_client.get_reachy_state(
                 request.reachy_id,
                 request.update_frequency,
-            ):           
+            ):
                 byte_data = state.SerializeToString()
                 gbyte_data = GLib.Bytes.new(byte_data)
                 channel.send_data(gbyte_data)
@@ -169,12 +169,14 @@ class GRPCWebRTCBridge:
 
         return ServiceResponse()
 
-    def _process_important_fields(self, important_msgs : AnyCommands, part_command : AnyCommand, important_fields : List[str]) -> None:
+    def _process_important_fields(
+        self, important_msgs: AnyCommands, part_command: AnyCommand, important_fields: List[str]
+    ) -> None:
         for field in important_fields:
             important_msgs += part_command.HasField(field)
             part_command.ClearField(field)
 
-    def _process_important_commands(self, commands : AnyCommands) -> int:
+    def _process_important_commands(self, commands: AnyCommands) -> int:
         important_msgs = 0
         for cmd in commands.commands:
             if cmd.HasField("arm_command"):
@@ -193,7 +195,7 @@ class GRPCWebRTCBridge:
                 self.logger.warning(f"Unkown command: {cmd}")
         return important_msgs
 
-    def _insert_and_drop(self, queue_name : str, command : AnyCommand) -> bool:
+    def _insert_and_drop(self, queue_name: str, command: AnyCommand) -> bool:
         dropped = True
         try:
             elem = self.std_queue[queue_name]
@@ -203,7 +205,7 @@ class GRPCWebRTCBridge:
             self.logger.warning("Dropping invalid command")
         return dropped
 
-    def _create_important_commands(self, commands : AnyCommands) -> AnyCommands:
+    def _create_important_commands(self, commands: AnyCommands) -> AnyCommands:
         commands_important = AnyCommands()
         commands_important.CopyFrom(commands)
         for cmd in commands_important.commands:
@@ -269,7 +271,15 @@ class GRPCWebRTCBridge:
         return ServiceResponse()
 
 
-def msg_handling(message : AnyCommand, logger : logging.Logger, part_name : str, part_handler : Callable[[GRPCClient], None], summary : pc.Summary, last_freq_counter : Dict[str, int], last_freq_update : Dict[str, float]) -> None:
+def msg_handling(
+    message: AnyCommand,
+    logger: logging.Logger,
+    part_name: str,
+    part_handler: Callable[[GRPCClient], None],
+    summary: pc.Summary,
+    last_freq_counter: Dict[str, int],
+    last_freq_update: Dict[str, float],
+) -> None:
     last_freq_counter[part_name] += 1
 
     with summary.time():
@@ -289,7 +299,14 @@ def msg_handling(message : AnyCommand, logger : logging.Logger, part_name : str,
 # Routines
 
 
-def handle_std_queue_routine(std_queue : deque[AnyCommand], part_name : str, part_handler : Callable[[GRPCClient], None], last_freq_counter : Dict[str, int], last_freq_update : Dict[str, float], bridge: GRPCWebRTCBridge) -> None:
+def handle_std_queue_routine(
+    std_queue: deque[AnyCommand],
+    part_name: str,
+    part_handler: Callable[[GRPCClient], None],
+    last_freq_counter: Dict[str, int],
+    last_freq_update: Dict[str, float],
+    bridge: GRPCWebRTCBridge,
+) -> None:
     logger = logging.getLogger(__name__)
     sum_part = pc.Summary(f"webrtcbridge_commands_time_{part_name}", f"Time spent during {part_name} commands")
 
@@ -301,15 +318,16 @@ def handle_std_queue_routine(std_queue : deque[AnyCommand], part_name : str, par
             time.sleep(0.001)
 
 
-def handle_important_queue_routine(grpc_client : GRPCClient, bridge: GRPCWebRTCBridge) -> None:
+def handle_important_queue_routine(grpc_client: GRPCClient, bridge: GRPCWebRTCBridge) -> None:
     sum_important = pc.Summary("webrtcbridge_commands_time_important", "Time spent during important commands")
     while bridge.bridge_running:
-        try: 
+        try:
             msg = bridge.important_queue.get(timeout=1)
             with sum_important.time():
                 grpc_client.handle_commands(msg)
         except Empty:
-            pass # need to proerly close the thread
+            pass  # need to proerly close the thread
+
 
 ####################
 # MAIN
@@ -383,18 +401,10 @@ def main() -> int:  # noqa: C901
         "mobile_base": time.time(),
     }
 
-
     for part in bridge.std_queue.keys():
         Thread(
             target=handle_std_queue_routine,
-            args=(
-                bridge.std_queue[part],
-                part,
-                part_handlers[part],
-                last_freq_counter,
-                last_freq_update,
-                bridge
-            ),
+            args=(bridge.std_queue[part], part, part_handlers[part], last_freq_counter, last_freq_update, bridge),
         ).start()
 
     Thread(
@@ -404,7 +414,7 @@ def main() -> int:  # noqa: C901
             bridge,
         ),
     ).start()
-    
+
     loop = asyncio.get_event_loop()
     try:
         loop.run_until_complete(bridge.serve4ever())
