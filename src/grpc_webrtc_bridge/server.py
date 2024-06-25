@@ -170,29 +170,30 @@ class GRPCWebRTCBridge:
         return ServiceResponse()
 
     def _process_important_fields(
-        self, important_msgs: AnyCommands, part_command: AnyCommand, important_fields: List[str]
-    ) -> None:
+        self, important_msgs: int, part_command: AnyCommand, important_fields: List[str]
+    ) -> int:
         for field in important_fields:
             important_msgs += part_command.HasField(field)
             part_command.ClearField(field)
+        return important_msgs
 
     def _process_important_commands(self, commands: AnyCommands) -> int:
         important_msgs = 0
         for cmd in commands.commands:
             if cmd.HasField("arm_command"):
-                self._process_important_fields(
+                important_msgs = self._process_important_fields(
                     important_msgs, cmd.arm_command, ["turn_on", "turn_off", "speed_limit", "torque_limit"]
                 )
             elif cmd.HasField("hand_command"):
-                self._process_important_fields(important_msgs, cmd.hand_command, ["turn_on", "turn_off"])
+                important_msgs = self._process_important_fields(important_msgs, cmd.hand_command, ["turn_on", "turn_off"])
             elif cmd.HasField("neck_command"):
-                self._process_important_fields(
+                important_msgs = self._process_important_fields(
                     important_msgs, cmd.neck_command, ["turn_on", "turn_off", "speed_limit", "torque_limit"]
                 )
             elif cmd.HasField("mobile_base_command"):
-                self._process_important_fields(important_msgs, cmd.mobile_base_command, ["mobile_base_mode"])
+                important_msgs = self._process_important_fields(important_msgs, cmd.mobile_base_command, ["mobile_base_mode"])
             else:
-                self.logger.warning(f"Unkown command: {cmd}")
+                self.logger.warning(f"Important command not processed: {cmd}")
         return important_msgs
 
     def _insert_and_drop(self, queue_name: str, command: AnyCommand) -> bool:
@@ -202,7 +203,7 @@ class GRPCWebRTCBridge:
             dropped = bool(elem)  # True means len(element) > 0
             elem.append(command)  # drop current element if any (maxlen=1)
         except KeyError:
-            self.logger.warning("Dropping invalid command")
+            self.logger.warning(f"Dropping invalid command : {queue_name}")
         return dropped
 
     def _create_important_commands(self, commands: AnyCommands) -> AnyCommands:
@@ -241,9 +242,7 @@ class GRPCWebRTCBridge:
         commands_important = self._create_important_commands(commands)
         ###############################
         dropped_msg = 0
-
         important_msgs = self._process_important_commands(commands)
-
         self.counter_important_commands.inc(important_msgs)
 
         if not important_msgs:
