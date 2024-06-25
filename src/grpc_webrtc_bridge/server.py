@@ -169,9 +169,7 @@ class GRPCWebRTCBridge:
 
         return ServiceResponse()
 
-    def _process_important_fields(
-        self, important_msgs: int, part_command: AnyCommand, important_fields: List[str]
-    ) -> int:
+    def _process_important_fields(self, important_msgs: int, part_command: AnyCommand, important_fields: List[str]) -> int:
         for field in important_fields:
             important_msgs += part_command.HasField(field)
             part_command.ClearField(field)
