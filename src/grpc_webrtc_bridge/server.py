@@ -199,15 +199,28 @@ class GRPCWebRTCBridge:
         
         @reachy_audit_datachannel.on("open")  # type: ignore[misc]
         def on_reachy_audit_datachannel_open() -> None:
+            reachy_stub_async = reachy_pb2_grpc.ReachyServiceStub(
+                grpc.aio.insecure_channel(f"{grpc_client.host}:{grpc_client.port}")
+            )
+
+            async def get_reachy_status(reachy_id, publish_frequency):
+                stream_req = reachy_pb2.ReachyStreamAuditRequest(
+                    id=reachy_id,
+                    publish_frequency=publish_frequency,
+                )
+
+                async for state in reachy_stub_async.StreamAudit(stream_req):
+                    yield state
+
             async def send_reachy_status() -> None:
                 try:
-                    async for state in grpc_client.audit(
+                    async for state in get_reachy_status(
                         request.reachy_id,
                         request.audit_frequency,
                     ):
                         reachy_audit_datachannel.send(state.SerializeToString())
                 except aiortc.exceptions.InvalidStateError:
-                    logging.info("Data channel closed.")
+                    logging.info("Audit data channel closed.")
 
             asyncio.ensure_future(send_reachy_status())
 
