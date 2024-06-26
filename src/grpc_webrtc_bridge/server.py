@@ -80,7 +80,7 @@ class GRPCWebRTCBridge:
     def on_data_service_channel(
         self, data_channel: GstWebRTC.WebRTCDataChannel, message: GLib.Bytes, grpc_client: GRPCClient, pc: Gst.Element
     ) -> None:
-        self.logger.info(f"Message from DataChannel: {message}")
+        self.logger.debug(f"Message from DataChannel: {message}")
         request = ServiceRequest()
         request.ParseFromString(message.get_data())
 
@@ -100,12 +100,12 @@ class GRPCWebRTCBridge:
     async def handle_service_request(
         self, request: ServiceRequest, data_channel: GstWebRTC.WebRTCDataChannel, grpc_client: GRPCClient, pc: Gst.Element
     ) -> None:
-        self.logger.info(f"Received service request message: {request}")
+        self.logger.debug(f"Received service request message: {request}")
 
         if request.HasField("get_reachy"):
             resp = self.handle_get_reachy_request(grpc_client)
 
-            self.logger.info(f"Sending service response message: {resp}")
+            self.logger.debug(f"Sending service response message: {resp}")
             byte_data = resp.SerializeToString()
             gbyte_data = GLib.Bytes.new(byte_data)
             data_channel.send_data(gbyte_data)
@@ -169,7 +169,8 @@ class GRPCWebRTCBridge:
 
         return ServiceResponse()
 
-    def _process_important_fields(self, important_msgs: int, part_command: AnyCommand, important_fields: List[str]) -> int:
+    @staticmethod
+    def _process_important_fields(important_msgs: int, part_command: AnyCommand, important_fields: List[str]) -> int:
         for field in important_fields:
             important_msgs += part_command.HasField(field)
             part_command.ClearField(field)
@@ -179,22 +180,26 @@ class GRPCWebRTCBridge:
         important_msgs = 0
         for cmd in commands.commands:
             if cmd.HasField("arm_command"):
-                important_msgs = self._process_important_fields(
+                important_msgs = GRPCWebRTCBridge._process_important_fields(
                     important_msgs, cmd.arm_command, ["turn_on", "turn_off", "speed_limit", "torque_limit"]
                 )
             elif cmd.HasField("hand_command"):
-                important_msgs = self._process_important_fields(important_msgs, cmd.hand_command, ["turn_on", "turn_off"])
+                important_msgs = GRPCWebRTCBridge._process_important_fields(
+                    important_msgs, cmd.hand_command, ["turn_on", "turn_off"]
+                )
             elif cmd.HasField("neck_command"):
-                important_msgs = self._process_important_fields(
+                important_msgs = GRPCWebRTCBridge._process_important_fields(
                     important_msgs, cmd.neck_command, ["turn_on", "turn_off", "speed_limit", "torque_limit"]
                 )
             elif cmd.HasField("mobile_base_command"):
-                important_msgs = self._process_important_fields(important_msgs, cmd.mobile_base_command, ["mobile_base_mode"])
+                important_msgs = GRPCWebRTCBridge._process_important_fields(
+                    important_msgs, cmd.mobile_base_command, ["mobile_base_mode"]
+                )
             else:
                 self.logger.warning(f"Important command not processed: {cmd}")
         return important_msgs
 
-    def _insert_and_drop(self, queue_name: str, command: AnyCommand) -> bool:
+    def _insert_or_drop(self, queue_name: str, command: AnyCommand) -> bool:
         dropped = True
         try:
             elem = self.std_queue[queue_name]
@@ -204,7 +209,8 @@ class GRPCWebRTCBridge:
             self.logger.warning(f"Dropping invalid command : {queue_name}")
         return dropped
 
-    def _create_important_commands(self, commands: AnyCommands) -> AnyCommands:
+    @staticmethod
+    def _create_important_commands(commands: AnyCommands) -> AnyCommands:
         commands_important = AnyCommands()
         commands_important.CopyFrom(commands)
         for cmd in commands_important.commands:
@@ -237,7 +243,7 @@ class GRPCWebRTCBridge:
         # this will leave only non-important commands in the received commands
         # in the future, important and non-important commands should be separated
         # in different proto messages
-        commands_important = self._create_important_commands(commands)
+        commands_important = GRPCWebRTCBridge._create_important_commands(commands)
         ###############################
         dropped_msg = 0
         important_msgs = self._process_important_commands(commands)
@@ -246,15 +252,15 @@ class GRPCWebRTCBridge:
         if not important_msgs:
             for cmd in commands.commands:
                 if cmd.HasField("arm_command"):
-                    dropped_msg += self._insert_and_drop(cmd.arm_command.arm_cartesian_goal.id.name, cmd.arm_command)
+                    dropped_msg += self._insert_or_drop(cmd.arm_command.arm_cartesian_goal.id.name, cmd.arm_command)
                 elif cmd.HasField("hand_command"):
-                    dropped_msg += self._insert_and_drop(cmd.hand_command.hand_goal.id.name, cmd.hand_command)
+                    dropped_msg += self._insert_or_drop(cmd.hand_command.hand_goal.id.name, cmd.hand_command)
                 elif cmd.HasField("neck_command"):
-                    dropped_msg += self._insert_and_drop("neck", cmd.neck_command)
+                    dropped_msg += self._insert_or_drop("neck", cmd.neck_command)
                 elif cmd.HasField("mobile_base_command"):
-                    dropped_msg += self._insert_and_drop("mobile_base", cmd.mobile_base_command)
+                    dropped_msg += self._insert_or_drop("mobile_base", cmd.mobile_base_command)
                 else:
-                    self.logger.warning(f"Unkown command: {cmd}")
+                    self.logger.warning(f"Unknown command: {cmd}")
         else:
             self.important_queue.put(commands_important)
             # self.logger.debug(f"important: {commands_important}")
@@ -294,8 +300,6 @@ def msg_handling(
 
 ####################
 # Routines
-
-
 def handle_std_queue_routine(
     std_queue: deque[AnyCommand],
     part_name: str,
@@ -326,11 +330,7 @@ def handle_important_queue_routine(grpc_client: GRPCClient, bridge: GRPCWebRTCBr
             pass  # need to proerly close the thread
 
 
-####################
-# MAIN
-
-
-def main() -> int:  # noqa: C901
+def main() -> int:
     parser = argparse.ArgumentParser()
 
     # gRPC
@@ -373,6 +373,8 @@ def main() -> int:  # noqa: C901
     if args.verbose:
         logging.basicConfig(level=logging.DEBUG)
         os.environ["GST_DEBUG"] = "3"
+    else:
+        logging.basicConfig(level=logging.INFO)
 
     bridge = GRPCWebRTCBridge(args)
 
