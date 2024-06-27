@@ -174,7 +174,7 @@ class GRPCWebRTCBridge:
             self.logger.error("Failed to create data channel state")
         audit_channel_state = pc.emit("create-data-channel", f"reachy_audit_{request.reachy_id.id}", channel_options)
         if audit_channel_state:
-            audit_channel_state.connect("on-open", self.on_open_state_channel, request, grpc_client)
+            audit_channel_state.connect("on-open", self.on_open_audit_channel, request, grpc_client)
         else:
             self.logger.error("Failed to create data channel state")
 
