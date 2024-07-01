@@ -133,6 +133,9 @@ class GRPCWebRTCBridge:
     def on_open_state_channel(self, channel: GstWebRTC.WebRTCDataChannel) -> None:
         self.logger.info("channel state opened")
 
+    def on_open_audit_channel(self, channel: GstWebRTC.WebRTCDataChannel) -> None:
+        self.logger.info("channel audit status opened")
+
     def on_error_state_channel(self, channel: GstWebRTC.WebRTCDataChannel, error: GLib.Error) -> None:
         self.logger.error(f"Error on state channel: {error.message}")
 
@@ -149,19 +152,15 @@ class GRPCWebRTCBridge:
             gbyte_data = GLib.Bytes.new(byte_data)
             channel.send_data(gbyte_data)
 
-    def on_open_audit_channel(self, channel: GstWebRTC.WebRTCDataChannel, request: Connect, grpc_client: GRPCClient) -> None:
-        self.logger.info("channel audit status opened")
-
-        async def send_joint_audit_status() -> None:
-            async for state in grpc_client.get_reachy_audit_status(
-                request.reachy_id,
-                request.audit_frequency,
-            ):
-                byte_data = state.SerializeToString()
-                gbyte_data = GLib.Bytes.new(byte_data)
-                channel.send_data(gbyte_data)
-
-        asyncio.run_coroutine_threadsafe(send_joint_audit_status(), self.producer._asyncloop)
+    async def _send_joint_audit_status(self, channel: GstWebRTC.WebRTCDataChannel, request: Connect, grpc_client: GRPCClient) -> None:
+        self.logger.info("start streaming audit status")
+        async for state in grpc_client.get_reachy_audit_status(
+            request.reachy_id,
+            request.audit_frequency,
+        ):
+            byte_data = state.SerializeToString()
+            gbyte_data = GLib.Bytes.new(byte_data)
+            channel.send_data(gbyte_data)
 
     async def handle_connect_request(self, request: Connect, grpc_client: GRPCClient, pc: Gst.Element) -> ServiceResponse:
         # Create state data channel and start sending state
@@ -184,6 +183,8 @@ class GRPCWebRTCBridge:
         audit_channel_state = pc.emit("create-data-channel", f"reachy_audit_{request.reachy_id.id}", channel_options)
         if audit_channel_state:
             audit_channel_state.connect("on-open", self.on_open_audit_channel, request, grpc_client)
+            asyncio.run_coroutine_threadsafe(
+                self._send_joint_audit_status(audit_channel_state, request, grpc_client), self.producer._asyncloop)
         else:
             self.logger.error("Failed to create data channel state")
 
