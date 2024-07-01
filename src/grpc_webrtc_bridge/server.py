@@ -162,7 +162,9 @@ class GRPCWebRTCBridge:
         if data_channel_state:
             data_channel_state.connect("on-open", self.on_open_state_channel)
             data_channel_state.connect("on-error", self.on_error_state_channel)
-            asyncio.run_coroutine_threadsafe(self._send_joint_state(data_channel_state, request, grpc_client), self.producer._asyncloop)
+            asyncio.run_coroutine_threadsafe(
+                self._send_joint_state(data_channel_state, request, grpc_client), self.producer._asyncloop
+            )
         else:
             self.logger.error("Failed to create data channel state")
 
