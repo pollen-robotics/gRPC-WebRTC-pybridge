@@ -60,7 +60,7 @@ class GRPCClient:
 
         async for state in self.reachy_stub_async.StreamReachyState(stream_req):
             yield state
-    
+
     # Retrieve Reachy entire audit status
     async def get_reachy_audit_status(
         self,

@@ -152,7 +152,9 @@ class GRPCWebRTCBridge:
             gbyte_data = GLib.Bytes.new(byte_data)
             channel.send_data(gbyte_data)
 
-    async def _send_joint_audit_status(self, channel: GstWebRTC.WebRTCDataChannel, request: Connect, grpc_client: GRPCClient) -> None:
+    async def _send_joint_audit_status(
+        self, channel: GstWebRTC.WebRTCDataChannel, request: Connect, grpc_client: GRPCClient
+    ) -> None:
         self.logger.info("start streaming audit status")
         async for state in grpc_client.get_reachy_audit_status(
             request.reachy_id,
@@ -184,7 +186,8 @@ class GRPCWebRTCBridge:
         if audit_channel_state:
             audit_channel_state.connect("on-open", self.on_open_audit_channel, request, grpc_client)
             asyncio.run_coroutine_threadsafe(
-                self._send_joint_audit_status(audit_channel_state, request, grpc_client), self.producer._asyncloop)
+                self._send_joint_audit_status(audit_channel_state, request, grpc_client), self.producer._asyncloop
+            )
         else:
             self.logger.error("Failed to create data channel state")
 
