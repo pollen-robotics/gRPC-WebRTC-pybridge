@@ -133,8 +133,11 @@ class GRPCWebRTCBridge:
     def on_open_state_channel(self, channel: GstWebRTC.WebRTCDataChannel) -> None:
         self.logger.info("channel state opened")
 
-    def on_error(self, channel: GstWebRTC.WebRTCDataChannel, error: GLib.Error) -> None:
-        self.logger.error(f"Error on data channel: {error.message}")
+    def on_error_state_channel(self, channel: GstWebRTC.WebRTCDataChannel, error: GLib.Error) -> None:
+        self.logger.error(f"Error on state channel: {error.message}")
+
+    def on_error_commands_channel(self, channel: GstWebRTC.WebRTCDataChannel, error: GLib.Error) -> None:
+        self.logger.error(f"Error on commands channel: {error.message}")
 
     async def _send_joint_state(self, channel: GstWebRTC.WebRTCDataChannel, request: Connect, grpc_client: GRPCClient) -> None:
         self.logger.info("start streaming state")
@@ -158,7 +161,7 @@ class GRPCWebRTCBridge:
         data_channel_state = pc.emit("create-data-channel", f"reachy_state_{request.reachy_id.id}", channel_options)
         if data_channel_state:
             data_channel_state.connect("on-open", self.on_open_state_channel)
-            data_channel_state.connect("on-error", self.on_open_state_channel)
+            data_channel_state.connect("on-error", self.on_error_state_channel)
             asyncio.run_coroutine_threadsafe(self._send_joint_state(data_channel_state, request, grpc_client), self.producer._asyncloop)
         else:
             self.logger.error("Failed to create data channel state")
@@ -168,6 +171,7 @@ class GRPCWebRTCBridge:
         reachy_command_datachannel = pc.emit("create-data-channel", f"reachy_command_{request.reachy_id.id}", channel_options)
         if reachy_command_datachannel:
             reachy_command_datachannel.connect("on-message-data", self.on_reachy_command_datachannel_message, grpc_client)
+            reachy_command_datachannel.connect("on-error", self.on_error_commands_channel)
         else:
             self.logger.error("Failed to create data channel command")
 
