@@ -68,6 +68,7 @@ class GRPCWebRTCBridge:
             grpc_client = GRPCClient(args.grpc_host, args.grpc_port)
 
             data_channel = pc.emit("create-data-channel", "service", None)
+
             if data_channel:
                 data_channel.connect("on-open", self.on_open_service_channel)
                 data_channel.connect("on-message-data", self.on_data_service_channel, grpc_client, pc)
@@ -184,7 +185,7 @@ class GRPCWebRTCBridge:
             self.logger.error("Failed to create data channel state")
         audit_channel_state = pc.emit("create-data-channel", f"reachy_audit_{request.reachy_id.id}", channel_options)
         if audit_channel_state:
-            audit_channel_state.connect("on-open", self.on_open_audit_channel, request, grpc_client)
+            audit_channel_state.connect("on-open", self.on_open_audit_channel)
             asyncio.run_coroutine_threadsafe(
                 self._send_joint_audit_status(audit_channel_state, request, grpc_client), self.producer._asyncloop
             )
@@ -437,6 +438,7 @@ def main() -> int:
         Thread(
             target=handle_std_queue_routine,
             args=(bridge.std_queue[part], part, part_handlers[part], last_freq_counter, last_freq_update, bridge),
+            daemon=True,
         ).start()
 
     Thread(
@@ -445,6 +447,7 @@ def main() -> int:
             grpc_client,
             bridge,
         ),
+        daemon=True,
     ).start()
 
     loop = asyncio.get_event_loop()
