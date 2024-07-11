@@ -11,6 +11,9 @@ from queue import Empty, Queue
 from threading import Thread
 from typing import Callable, Dict, List
 
+from opentelemetry.instrumentation import grpc as grpc_instrumentation
+grpc_instrumentation.GrpcInstrumentorClient().instrument()
+
 import gi
 
 # from queue import Queue
@@ -32,11 +35,13 @@ gi.require_version("Gst", "1.0")
 
 from gi.repository import GLib, Gst, GstWebRTC  # noqa : E402
 
+from . import tracing_helper
 
 class GRPCWebRTCBridge:
     def __init__(self, args: argparse.Namespace) -> None:
         self.logger = logging.getLogger(__name__)
         pc.start_http_server(10001)
+        self.tracer = tracing_helper.tracer("grpc-webrtc_bridge")
         # self.sum_time_important_commands = pc.Summary('webrtcbridge_time_important_commands',
         #                                               'Time spent during handle important commands')
         self.counter_all_commands = pc.Counter("webrtcbridge_all_commands", "Amount of commands received")
@@ -65,7 +70,7 @@ class GRPCWebRTCBridge:
         def on_new_session(session: GstSession) -> None:
             pc = session.pc
 
-            grpc_client = GRPCClient(args.grpc_host, args.grpc_port)
+            grpc_client = GRPCClient(args.grpc_host, args.grpc_port, self.tracer)
 
             data_channel = pc.emit("create-data-channel", "service", None)
 
@@ -414,7 +419,7 @@ def main() -> int:
 
     time.sleep(2)
 
-    grpc_client = GRPCClient(args.grpc_host, args.grpc_port)
+    grpc_client = GRPCClient(args.grpc_host, args.grpc_port, bridge.tracer)
     part_handlers = {
         "neck": grpc_client.handle_neck_command,
         "r_arm": grpc_client.handle_arm_command,
