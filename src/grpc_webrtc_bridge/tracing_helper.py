@@ -16,6 +16,6 @@ def tracer(service_name):
     # trace.set_tracer_provider(TracerProvider())
     trace.set_tracer_provider(TracerProvider(resource=resource))
     trace.get_tracer_provider().add_span_processor(
-        BatchSpanProcessor(OTLPSpanExporter(endpoint="http://localhost:4317"))
+        BatchSpanProcessor(OTLPSpanExporter(endpoint="http://host.docker.internal:4317"))
     )
     return trace.get_tracer(service_name)
