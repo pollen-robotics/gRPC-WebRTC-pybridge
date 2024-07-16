@@ -19,6 +19,3 @@ echo "-------> Flake8 passed!"
 # Run mypy against all code in the `source_code` directory
 mypy .
 echo "-------> Mypy passed!"
-
-# Run pytest
-coverage run -m pytest

@@ -1,26 +1,30 @@
 # gRPC <--> WebRTC bridge
 
-This is a simple bridge between gRPC and WebRTC. It allows you to call the gRPC services from the SDK server through WebRTC.
+This is a simple bridge between gRPC and WebRTC. It allows you to call the gRPC services from the SDK server through WebRTC. It relies on the gstreamer webrtc implementation.
 
 ## Installation
 
-* ```pip install -e .```
+```pip install -e .[dev, pollen, examples]```
+
+*dev, pollen, examples are optional parameters for developers*
 
 ## Usage
 
-* Launch the Robot
-```ros2 launch reachy_bringup reachy.launch.py fake:=true```
+Please see https://github.com/pollen-robotics/docker_webrtc for production use
 
-* Launch the SDK server
-```ros2 run reachy_sdk_server reachy_grpc_joint_sdk_server ./src/reachy2_sdk_server/config/reachy_full_kit.yaml```
+### Requirements
 
-* Launch the signalling server
+* Launch the (fake) Robot using the [core docker image](https://github.com/pollen-robotics/docker_reachy2_core)
+```ros2 launch reachy_bringup reachy.launch.py start_sdk_server:=true start_rviz:=true fake:=true```
+
+* Launch a signalling server using [webrtc docker image](https://github.com/pollen-robotics/docker_webrtc)
 ```gst-webrtc-signalling-server```
 
-* Launch the bridge
-```python -m grpc_webrtc_bridge.server```
+* Launch the bridge from a webrtc docker image
+```grpc_webrtc_bridge --webrtc-signaling-host signalling-server --grpc-host 172.17.0.1 --verbose```
 
-* Launch the tele-op fake app:
+### Fake teleop example
 
-  * ```cd src/examples```
-  * ```python teleop.py```
+* Launch the fake teleop app:
+
+  * ```python src/example/fake_teleop.py```
