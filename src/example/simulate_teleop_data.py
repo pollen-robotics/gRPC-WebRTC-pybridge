@@ -79,6 +79,12 @@ class TeleopApp:
         resp.ParseFromString(message.get_data())
         self._logger.debug(f"Message from service channel: {resp}")
 
+        if resp.HasField("connection_status"):
+            self.connection = resp.connection_status
+
+        if resp.HasField("error"):
+            self._logger.error(f"Received error message: {resp.error}")
+
         # Ask for opening of state and audit channels
         req = ServiceRequest(
             connect=Connect(reachy_id=ReachyId(id=resp.connection_status.reachy.id.id), update_frequency=60, audit_frequency=1)
@@ -122,13 +128,29 @@ class TeleopApp:
             duration=FloatValue(value=1.0),
         )
 
+    def make_arm_cartesian_goal(self, x: float, y: float, z: float, partid: int = 1) -> ArmCartesianGoal:
+        goal = np.array(
+            [
+                [0, 0, 1, x],
+                [0, 1, 0, y],
+                [1, 0, 0, z],
+                [0, 0, 0, 1],
+            ]
+        )
+        return ArmCartesianGoal(
+            # id={"id": partid, "name": "r_arm" if partid==1 else "l_arm"},
+            id=partid,
+            goal_pose=Matrix4x4(data=goal.flatten().tolist()),
+            duration=FloatValue(value=1.0),
+        )
+
     def ensure_send_command(self, channel: GstWebRTC.WebRTCDataChannel, freq: float = 100) -> None:
         async def send_command() -> None:
-            radius = 0.5  # Circle radius
-            fixed_x = 1  # Fixed x-coordinate
-            center_y, center_z = 0, 0  # Center of the circle in y-z plane
+            radius = 0.2  # Circle radius
+            fixed_x = 0.4  # Fixed x-coordinate
+            center_y, center_z = 0, 0.1  # Center of the circle in y-z plane
             num_steps = 200  # Number of steps to complete the circle
-            frequency = 10000  # Update frequency in Hz
+            frequency = 100  # Update frequency in Hz
             step = 0  # Current step
             circle_period = 3
             t0 = time.time()
@@ -142,13 +164,26 @@ class TeleopApp:
                 # Calculate y and z coordinates
                 y = center_y + radius * np.cos(angle)
                 z = center_z + radius * np.sin(angle)
+
                 commands = AnyCommands(
                     commands=[
-                        AnyCommand(
-                            arm_command=ArmCommand(arm_cartesian_goal=self.get_arm_cartesian_goal(fixed_x, y, z)),
+                        AnyCommand(  # right arm
+                            arm_command=ArmCommand(
+                                arm_cartesian_goal=self.make_arm_cartesian_goal(
+                                    fixed_x, y - 0.2, z, partid=self.connection.reachy.r_arm.part_id
+                                )
+                            ),
+                        ),
+                        AnyCommand(  # left arm
+                            arm_command=ArmCommand(
+                                arm_cartesian_goal=self.make_arm_cartesian_goal(
+                                    fixed_x, y + 0.2, z, partid=self.connection.reachy.l_arm.part_id
+                                )
+                            ),
                         ),
                     ],
                 )
+
                 byte_data = commands.SerializeToString()
                 gbyte_data = GLib.Bytes.new(byte_data)
                 channel.send_data(gbyte_data)

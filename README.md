@@ -27,4 +27,4 @@ Please see https://github.com/pollen-robotics/docker_webrtc for production use
 
 * Launch the fake teleop app:
 
-  * ```python src/example/fake_teleop.py```
+  * ```python src/example/simulate_teleop_data.py```
