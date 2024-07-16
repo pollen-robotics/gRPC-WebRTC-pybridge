@@ -32,11 +32,35 @@ class TeleopApp:
     def __init__(self, args: argparse.Namespace) -> None:
         self._logger = logging.getLogger(__name__)
 
-        producer_peer_id = find_producer_peer_id_by_name(
-            args.webrtc_signalling_host,
-            args.webrtc_signalling_port,
-            args.webrtc_producer_name,
-        )
+        producer_peer_id = None
+        default_signalling_hosts = ["127.0.0.1", "signalling-server"]
+        if not args.webrtc_signalling_host:
+            self._logger.warning(f"--webrtc-signalling-host not provided, used defaults")
+            for host in default_signalling_hosts:
+                self._logger.warning(f"test webrtc signalling host: {host}")
+                try:
+                    args.webrtc_signalling_host = host
+                    producer_peer_id = find_producer_peer_id_by_name(
+                        args.webrtc_signalling_host,
+                        args.webrtc_signalling_port,
+                        args.webrtc_producer_name,
+                    )
+                except Exception as e:
+                    self._logger.warning(f"webrtc signalling host {host}: FAIL")
+                    self._logger.warning(str(e))
+                    args.webrtc_signalling_host = ""
+                else:
+                    self._logger.warning(f"webrtc signalling host {host}: OK")
+        else:
+            producer_peer_id = find_producer_peer_id_by_name(
+                args.webrtc_signalling_host,
+                args.webrtc_signalling_port,
+                args.webrtc_producer_name,
+            )
+
+        if producer_peer_id is None:
+            self._logger.fatal(f"webrtc host initialization failed")
+            sys.exit(1)
 
         self.consumer = GstSignallingConsumer(
             host=args.webrtc_signalling_host,
@@ -216,7 +240,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--webrtc-signalling-host",
         type=str,
-        default="127.0.0.1",
+        default="",
         help="Host of the gstreamer webrtc signalling server.",
     )
     parser.add_argument(
