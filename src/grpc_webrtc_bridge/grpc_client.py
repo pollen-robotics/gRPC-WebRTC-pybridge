@@ -14,6 +14,9 @@ from reachy2_sdk_api import (
     webrtc_bridge_pb2,
 )
 
+from . import tracing_helper
+
+
 # sum_hand = pc.Summary('grpcwebrtc_client_hand_commands', 'Time spent during hand commands')
 # sum_arm =  pc.Summary('grpcwebrtc_client_arm_commands', 'Time spent during arm commands')
 # sum_neck = pc.Summary('grpcwebrtc_client_neck_commands', 'Time spent during neck commands')
@@ -25,9 +28,11 @@ class GRPCClient:
         self,
         host: str,
         port: int,
-        tracer,
+        tracer=None,
     ) -> None:
         self.logger = logging.getLogger(__name__)
+        if tracer is None:
+            tracer = tracing_helper.tracer(f"grpc-webrtc_bridge_{port}")
         self.tracer = tracer
 
         self.host = host

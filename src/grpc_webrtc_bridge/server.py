@@ -429,6 +429,22 @@ def main() -> int:
         "mobile_base": grpc_client.handle_mobile_base_command,
     }
 
+    ########################################################################
+    # NOTE used for testing code that instantiates multiple grpc servers
+    # grpc_clients = []
+    # for nn in range(0, 6):
+    #     grpc_clients.append(GRPCClient(args.grpc_host, args.grpc_port+nn, None))
+    # part_handlers = {
+    #     "neck": grpc_clients[0].handle_neck_command,
+    #     "r_arm": grpc_clients[1].handle_arm_command,
+    #     "l_arm": grpc_clients[2].handle_arm_command,
+    #     "r_hand": grpc_clients[3].handle_hand_command,
+    #     "l_hand": grpc_clients[4].handle_hand_command,
+    #     "mobile_base": grpc_clients[5].handle_mobile_base_command,
+    # }
+    # grpc_client = grpc_clients[-1]
+    ########################################################################
+
     last_freq_counter = {"neck": 0, "r_arm": 0, "l_arm": 0, "r_hand": 0, "l_hand": 0, "mobile_base": 0}
     last_freq_update = {
         "neck": time.time(),
