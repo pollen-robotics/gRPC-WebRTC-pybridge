@@ -149,6 +149,12 @@ class GRPCWebRTCBridge:
         self.logger.error(f"Error on commands channel: {error.message}")
 
     async def _send_joint_state(self, channel: GstWebRTC.WebRTCDataChannel, request: Connect, grpc_client: GRPCClient) -> None:
+        # span_links = tracing_helper.span_links([tracing_helper.trace.get_current_span().get_span_context()])
+        # with self.tracer.start_as_current_span(f"_send_joint_state",
+        #                                        kind=tracing_helper.trace.SpanKind.INTERNAL,
+        #                                        context=tracing_helper.otel_rootctx,
+        #                                        links=span_links,
+        #                                        ):
         self.logger.info("start streaming state")
         async for state in grpc_client.get_reachy_state(
             request.reachy_id,
@@ -161,6 +167,12 @@ class GRPCWebRTCBridge:
     async def _send_joint_audit_status(
         self, channel: GstWebRTC.WebRTCDataChannel, request: Connect, grpc_client: GRPCClient
     ) -> None:
+        # span_links = tracing_helper.span_links([tracing_helper.trace.get_current_span().get_span_context()])
+        # with self.tracer.start_as_current_span(f"_send_joint_audit_status",
+        #                                        kind=tracing_helper.trace.SpanKind.INTERNAL,
+        #                                        context=tracing_helper.otel_rootctx,
+        #                                        links=span_links,
+        #                                        ):
         self.logger.info("start streaming audit status")
         async for state in grpc_client.get_reachy_audit_status(
             request.reachy_id,
