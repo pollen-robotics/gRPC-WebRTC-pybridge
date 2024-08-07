@@ -16,6 +16,7 @@ from viztracer import VizTracer
 from dataclasses import dataclass
 
 otel_rootctx = context.get_current()
+first_spans = {}
 
 VIZTRACER_REPORTSDIR = "/home/reachy/viztracer_reports"
 
@@ -125,7 +126,7 @@ def tracer(service_name):
 
     if pyroscope_enabled():
         provider.add_span_processor(
-            otel.PyroscopeSpanProcessor())  # this can be commented
+            otel.PyroscopeSpanProcessor())
     provider.add_span_processor(
         BatchSpanProcessor(
             OTLPSpanExporter(endpoint=f"http://{localhoststr}:4317")))
@@ -178,3 +179,9 @@ def configure_pyroscope(service_name, tags={}):
             report_thread_name=True,  # default False
             tags=tags,
         )
+
+def first_span(key):
+    if key not in first_spans:
+        first_spans[key] = trace.get_current_span()
+        print("first_span key:", key, first_spans[key])
+    return first_spans[key]
