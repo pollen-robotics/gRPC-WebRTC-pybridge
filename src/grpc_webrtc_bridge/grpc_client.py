@@ -88,7 +88,7 @@ class GRPCClient:
         commands: webrtc_bridge_pb2.AnyCommands,
     ) -> None:
         # self.logger.info(f"Received message: {commands}")
-        with self.tracer.start_as_current_span(f"handle_commands") as span:
+        with tracing_helper.PollenSpan(tracer=self.tracer, trace_name=f"handle_commands"):
             for cmd in commands.commands:
                 if cmd.HasField("arm_command"):
                     self.handle_arm_command(cmd.arm_command)
@@ -102,66 +102,66 @@ class GRPCClient:
                     self.logger.warning(f"Unknown command : {cmd}")
 
     def handle_arm_command(self, cmd: webrtc_bridge_pb2.ArmCommand) -> None:
-        with self.tracer.start_as_current_span(f"handle_arm_command") as span:
+        with tracing_helper.PollenSpan(tracer=self.tracer, trace_name=f"handle_arm_command"):
             if cmd.HasField("arm_cartesian_goal"):
-                with self.tracer.start_as_current_span(f"SendArmCartesianGoal") as span2:
+                with tracing_helper.PollenSpan(tracer=self.tracer, trace_name=f"SendArmCartesianGoal"):
                     self.arm_stub.SendArmCartesianGoal(cmd.arm_cartesian_goal)
             elif cmd.HasField("turn_on"):
-                with self.tracer.start_as_current_span(f"arm_turn_on") as span2:
+                with tracing_helper.PollenSpan(tracer=self.tracer, trace_name=f"arm_turn_on"):
                     self.arm_stub.TurnOn(cmd.turn_on)
             elif cmd.HasField("turn_off"):
-                with self.tracer.start_as_current_span(f"arm_turn_off") as span2:
+                with tracing_helper.PollenSpan(tracer=self.tracer, trace_name=f"arm_turn_off"):
                     self.arm_stub.TurnOff(cmd.turn_off)
             elif cmd.HasField("speed_limit"):
-                with self.tracer.start_as_current_span(f"arm_speed_limit") as span2:
+                with tracing_helper.PollenSpan(tracer=self.tracer, trace_name=f"arm_speed_limit"):
                     self.arm_stub.SetSpeedLimit(cmd.speed_limit)
             elif cmd.HasField("torque_limit"):
-                with self.tracer.start_as_current_span(f"arm_torque_limit") as span2:
+                with tracing_helper.PollenSpan(tracer=self.tracer, trace_name=f"arm_torque_limit"):
                     self.arm_stub.SetTorqueLimit(cmd.torque_limit)
             else:
                 self.logger.warning(f"Unknown arm command : {cmd}")
 
     def handle_hand_command(self, cmd: webrtc_bridge_pb2.HandCommand) -> None:
-        with self.tracer.start_as_current_span(f"handle_hand_command") as span:
+        with tracing_helper.PollenSpan(tracer=self.tracer, trace_name=f"handle_hand_command"):
             if cmd.HasField("hand_goal"):
-                with self.tracer.start_as_current_span(f"hand_goal") as span2:
+                with tracing_helper.PollenSpan(tracer=self.tracer, trace_name=f"hand_goal"):
                     self.hand_stub.SetHandPosition(cmd.hand_goal)
             elif cmd.HasField("turn_on"):
-                with self.tracer.start_as_current_span(f"hand_turn_on") as span2:
+                with tracing_helper.PollenSpan(tracer=self.tracer, trace_name=f"hand_turn_on"):
                     self.hand_stub.TurnOn(cmd.turn_on)
             elif cmd.HasField("turn_off"):
-                with self.tracer.start_as_current_span(f"hand_turn_off") as span2:
+                with tracing_helper.PollenSpan(tracer=self.tracer, trace_name=f"hand_turn_off"):
                     self.hand_stub.TurnOff(cmd.turn_off)
             else:
                 self.logger.warning(f"Unknown hand command : {cmd}")
 
     def handle_neck_command(self, cmd: webrtc_bridge_pb2.NeckCommand) -> None:
-        with self.tracer.start_as_current_span(f"handle_neck_command") as span:
+        with tracing_helper.PollenSpan(tracer=self.tracer, trace_name=f"handle_neck_command"):
             if cmd.HasField("neck_goal"):
-                with self.tracer.start_as_current_span(f"neck_goal") as span2:
+                with tracing_helper.PollenSpan(tracer=self.tracer, trace_name=f"neck_goal"):
                     self.head_stub.SendNeckJointGoal(cmd.neck_goal)
             elif cmd.HasField("turn_on"):
-                with self.tracer.start_as_current_span(f"neck_turn_on") as span2:
+                with tracing_helper.PollenSpan(tracer=self.tracer, trace_name=f"neck_turn_on"):
                     self.head_stub.TurnOn(cmd.turn_on)
             elif cmd.HasField("turn_off"):
-                with self.tracer.start_as_current_span(f"neck_turn_off") as span2:
+                with tracing_helper.PollenSpan(tracer=self.tracer, trace_name=f"neck_turn_off"):
                     self.head_stub.TurnOff(cmd.turn_off)
             elif cmd.HasField("speed_limit"):
-                with self.tracer.start_as_current_span(f"neck_speed_limit") as span2:
+                with tracing_helper.PollenSpan(tracer=self.tracer, trace_name=f"neck_speed_limit"):
                     self.head_stub.SetSpeedLimit(cmd.speed_limit)
             elif cmd.HasField("torque_limit"):
-                with self.tracer.start_as_current_span(f"neck_torque_limit") as span2:
+                with tracing_helper.PollenSpan(tracer=self.tracer, trace_name=f"neck_torque_limit"):
                     self.head_stub.SetTorqueLimit(cmd.torque_limit)
             else:
                 self.logger.warning(f"Unknown neck command : {cmd}")
 
     def handle_mobile_base_command(self, cmd: webrtc_bridge_pb2.MobileBaseCommand) -> None:
-        with self.tracer.start_as_current_span(f"handle_mobile_base_command") as span:
+        with tracing_helper.PollenSpan(tracer=self.tracer, trace_name=f"handle_mobile_base_command"):
             if cmd.HasField("target_direction"):
-                with self.tracer.start_as_current_span(f"mobile_base_target_direction") as span2:
+                with tracing_helper.PollenSpan(tracer=self.tracer, trace_name=f"mobile_base_target_direction"):
                     self.mb_mobility_stub.SendDirection(cmd.target_direction)
             elif cmd.HasField("mobile_base_mode"):
-                with self.tracer.start_as_current_span(f"mobile_base_mode") as span2:
+                with tracing_helper.PollenSpan(tracer=self.tracer, trace_name=f"mobile_base_mode"):
                     self.mb_utility_stub.SetZuuuMode(cmd.mobile_base_mode)
             else:
                 self.logger.warning(f"Unknown mobile base command : {cmd}")

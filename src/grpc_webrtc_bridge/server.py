@@ -41,7 +41,15 @@ class GRPCWebRTCBridge:
     def __init__(self, args: argparse.Namespace) -> None:
         self.logger = logging.getLogger(__name__)
         pc.start_http_server(10001)
-        self.tracer = tracing_helper.tracer("grpc-webrtc_bridge")
+        NODE_NAME = "grpc-webrtc_bridge"
+        tracing_helper.configure_pyroscope(
+            NODE_NAME,
+            tags={
+                "server": "false",
+                "client": "true",
+            },
+        )
+        self.tracer = tracing_helper.tracer(NODE_NAME)
         # self.sum_time_important_commands = pc.Summary('webrtcbridge_time_important_commands',
         #                                               'Time spent during handle important commands')
         self.counter_all_commands = pc.Counter("webrtcbridge_all_commands", "Amount of commands received")
