@@ -11,9 +11,6 @@ from queue import Empty, Queue
 from threading import Thread
 from typing import Callable, Dict, List
 
-from opentelemetry.instrumentation import grpc as grpc_instrumentation
-grpc_instrumentation.GrpcInstrumentorClient().instrument()
-
 import gi
 
 # from queue import Queue
@@ -49,7 +46,7 @@ class GRPCWebRTCBridge:
                 "client": "true",
             },
         )
-        self.tracer = tracing_helper.tracer(NODE_NAME)
+        self.tracer = tracing_helper.tracer(NODE_NAME, grpc_type="client")
         # self.sum_time_important_commands = pc.Summary('webrtcbridge_time_important_commands',
         #                                               'Time spent during handle important commands')
         self.counter_all_commands = pc.Counter("webrtcbridge_all_commands", "Amount of commands received")

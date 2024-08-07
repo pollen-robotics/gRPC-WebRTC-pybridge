@@ -32,7 +32,7 @@ class GRPCClient:
     ) -> None:
         self.logger = logging.getLogger(__name__)
         if tracer is None:
-            tracer = tracing_helper.tracer(f"grpc-webrtc_bridge_{port}")
+            tracer = tracing_helper.tracer(f"grpc-webrtc_bridge_{port}", grpc_type="client")
         self.tracer = tracer
 
         self.host = host
