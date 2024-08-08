@@ -1,1 +1,1 @@
-localhoststr = "host.docker.internal"
+localhoststr = "localhost"
