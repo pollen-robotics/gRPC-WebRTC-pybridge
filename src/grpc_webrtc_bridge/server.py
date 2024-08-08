@@ -34,6 +34,7 @@ from gi.repository import GLib, Gst, GstWebRTC  # noqa : E402
 
 from . import tracing_helper
 
+
 class GRPCWebRTCBridge:
     def __init__(self, args: argparse.Namespace) -> None:
         self.logger = logging.getLogger(__name__)

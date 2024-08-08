@@ -1,20 +1,21 @@
+import contextlib
 import os
-from opentelemetry import trace, context
+from dataclasses import dataclass
+
+import pyroscope
+from opentelemetry import context, trace
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+from opentelemetry.instrumentation import grpc as grpc_instrumentation
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import (  # ConsoleSpanExporter,; SimpleSpanProcessor,
-    BatchSpanProcessor, )
-
+    BatchSpanProcessor,
+)
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
-from opentelemetry.instrumentation import grpc as grpc_instrumentation
-
-import pyroscope
 from pyroscope import otel
-import contextlib
-from .tracing_helper_constants import localhoststr
 from viztracer import VizTracer
-from dataclasses import dataclass
+
+from .tracing_helper_constants import localhoststr
 
 otel_rootctx = context.get_current()
 first_spans = {}
@@ -91,19 +92,18 @@ class PollenSpan(contextlib.ExitStack):
         """
         stack = super().__enter__()
         self.span = self.enter_context(
-            self.tracer.start_as_current_span(
-                self.trace_name, kind=self.kind, context=self.context
-            ) if otel_spans_enabled() else contextlib.nullcontext(DummySpan))
+            self.tracer.start_as_current_span(self.trace_name, kind=self.kind, context=self.context)
+            if otel_spans_enabled()
+            else contextlib.nullcontext(DummySpan)
+        )
 
         if pyroscope_enabled() and self.with_pyroscope:
-            self.pyroscope = self.enter_context(
-                pyroscope.tag_wrapper(self.pyroscope_tags))
+            self.pyroscope = self.enter_context(pyroscope.tag_wrapper(self.pyroscope_tags))
         if viztracer_enabled() and self.with_viztracer:
             ctx = self.span.get_span_context()
             self.viztracer = VizTracer(
                 # verbose=True,
-                output_file=
-                f"{VIZTRACER_REPORTSDIR}/{ctx.trace_id}-{ctx.span_id}-{self.trace_name}.json",
+                output_file=f"{VIZTRACER_REPORTSDIR}/{ctx.trace_id}-{ctx.span_id}-{self.trace_name}.json",
                 log_async=True,
                 log_gc=True,
             )
@@ -129,9 +129,7 @@ def tracer(service_name, grpc_type=""):
 
         if pyroscope_enabled():
             provider.add_span_processor(otel.PyroscopeSpanProcessor())
-        provider.add_span_processor(
-            BatchSpanProcessor(
-                OTLPSpanExporter(endpoint=f"http://{localhoststr}:4317")))
+        provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(endpoint=f"http://{localhoststr}:4317")))
 
         trace.set_tracer_provider(provider)
         # trace.get_tracer_provider().add_span_processor(
@@ -150,19 +148,14 @@ def span_links(span, spans=[]):
 def configure_pyroscope(service_name, tags={}):
     if pyroscope_enabled():
         pyroscope.configure(
-            application_name=
-            service_name,  # replace this with some name for your application
-            server_address=
-            f"http://{localhoststr}:4040",  # replace this with the address of your Pyroscope server
+            application_name=service_name,  # replace this with some name for your application
+            server_address=f"http://{localhoststr}:4040",  # replace this with the address of your Pyroscope server
             sample_rate=5000,  # default is 100
-            detect_subprocesses=
-            True,  # detect subprocesses started by the main process; default is False
+            detect_subprocesses=True,  # detect subprocesses started by the main process; default is False
             oncpu=False,  # report cpu time only; default is True
-            gil_only=
-            False,  # only include traces for threads that are holding on to the Global Interpreter Lock; default is True
+            gil_only=False,  # only include traces for threads that are holding on to the Global Interpreter Lock; default is True
             # enable_logging=True,  # does enable logging facility; default is False
-            enable_logging=
-            False,  # does enable logging facility; default is False
+            enable_logging=False,  # does enable logging facility; default is False
             report_pid=True,  # default False
             report_thread_id=True,  # default False
             report_thread_name=True,  # default False
