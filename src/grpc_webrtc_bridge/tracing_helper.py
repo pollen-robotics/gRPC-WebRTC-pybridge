@@ -23,15 +23,15 @@ first_spans = {}
 VIZTRACER_REPORTSDIR = "/home/reachy/viztracer_reports"
 
 
-def pyroscope_enabled():
+def pyroscope_enabled() -> bool:
     return os.environ.get("REACHY_ENABLE_PROFILING_PYROSCOPE") is not None
 
 
-def viztracer_enabled():
+def viztracer_enabled() -> bool:
     return os.environ.get("REACHY_ENABLE_PROFILING_VIZTRACER") is not None
 
 
-def otel_spans_enabled():
+def otel_spans_enabled() -> bool:
     return os.environ.get("REACHY_ENABLE_OTEL_SPANS") is not None
 
 
@@ -54,19 +54,18 @@ class DummySpan:
 
     N = 0
 
-    def get_span_context(self):
+    def get_span_context(self) -> DummyContext:
         self.N += 1
         return DummyContext(trace_id=self.N, span_id=self.N)
 
-    def set_attributes(_):
+    def set_attributes(_) -> None:
         pass
 
-    def end(_):
+    def end(_) -> None:
         pass
 
 
 class PollenSpan(contextlib.ExitStack):
-
     def __init__(
         self,
         tracer,
@@ -110,7 +109,7 @@ class PollenSpan(contextlib.ExitStack):
         return stack
 
 
-def tracer(service_name, grpc_type=""):
+def tracer(service_name: str, grpc_type: str = ""):
     if otel_spans_enabled():
         match grpc_type:
             case "":
@@ -153,7 +152,7 @@ def configure_pyroscope(service_name, tags={}):
             sample_rate=5000,  # default is 100
             detect_subprocesses=True,  # detect subprocesses started by the main process; default is False
             oncpu=False,  # report cpu time only; default is True
-            gil_only=False,  # only include traces for threads that are holding on to the Global Interpreter Lock; default is True
+            gil_only=False,  # only include traces for threads that are holding on to the GIL; default is True
             # enable_logging=True,  # does enable logging facility; default is False
             enable_logging=False,  # does enable logging facility; default is False
             report_pid=True,  # default False
@@ -174,7 +173,7 @@ def first_span(key):
 # dummy function to be disabled when otel spans off
 
 
-def real_travel_span(name, start_time, tracer, context=None):
+def real_travel_span(name, start_time, tracer, context=None) -> None:
     """
     Creates a span with a provided start_time.
     This is a workaround to simulate having started the span in the past.
@@ -184,7 +183,7 @@ def real_travel_span(name, start_time, tracer, context=None):
         pass
 
 
-def dummy_travel_span(name, start_time, tracer, context=None):
+def dummy_travel_span(name, start_time, tracer, context=None) -> None:
     pass
 
 
@@ -197,7 +196,7 @@ def real_traceparent():
     return carrier[TRACEPARENT_STR]
 
 
-def dummy_traceparent():
+def dummy_traceparent() -> str:
     return ""
 
 
@@ -206,7 +205,7 @@ def real_ctx_from_traceparent(traceparent):
     return TraceContextTextMapPropagator().extract(carrier=carrier)
 
 
-def dummy_ctx_from_traceparent(_):
+def dummy_ctx_from_traceparent() -> None:
     return None
 
 

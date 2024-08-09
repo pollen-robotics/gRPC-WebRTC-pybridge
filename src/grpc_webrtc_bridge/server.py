@@ -27,12 +27,11 @@ from reachy2_sdk_api.webrtc_bridge_pb2 import (
 )
 
 from .grpc_client import GRPCClient
+from .tracing_helper import configure_pyroscope, tracer
 
 gi.require_version("Gst", "1.0")
 
 from gi.repository import GLib, Gst, GstWebRTC  # noqa : E402
-
-from . import tracing_helper
 
 
 class GRPCWebRTCBridge:
@@ -40,14 +39,14 @@ class GRPCWebRTCBridge:
         self.logger = logging.getLogger(__name__)
         pc.start_http_server(10001)
         NODE_NAME = "grpc-webrtc_bridge"
-        tracing_helper.configure_pyroscope(
+        configure_pyroscope(
             NODE_NAME,
             tags={
                 "server": "false",
                 "client": "true",
             },
         )
-        self.tracer = tracing_helper.tracer(NODE_NAME, grpc_type="client")
+        self.tracer = tracer(NODE_NAME, grpc_type="client")
         # self.sum_time_important_commands = pc.Summary('webrtcbridge_time_important_commands',
         #                                               'Time spent during handle important commands')
         self.counter_all_commands = pc.Counter("webrtcbridge_all_commands", "Amount of commands received")
