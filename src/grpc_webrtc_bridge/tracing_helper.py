@@ -1,6 +1,7 @@
 import contextlib
 import os
 from dataclasses import dataclass
+from typing import Any, Dict, List, no_type_check
 
 import pyroscope
 from opentelemetry import context, trace
@@ -66,16 +67,17 @@ class DummySpan:
 
 
 class PollenSpan(contextlib.ExitStack):
+    @no_type_check
     def __init__(
         self,
-        tracer,
-        trace_name,
-        kind=trace.SpanKind.INTERNAL,
-        context=None,
-        with_pyroscope=True,
-        with_viztracer=False,
-        pyroscope_tags={},
-    ):
+        tracer: Any,
+        trace_name: Any,
+        kind: trace.SpanKind = trace.SpanKind.INTERNAL,
+        context: Any = None,
+        with_pyroscope: bool = True,
+        with_viztracer: bool = False,
+        pyroscope_tags: Dict[str, str] = {},
+    ) -> None:
         super().__init__()
         self.tracer = tracer
         self.trace_name = trace_name
@@ -85,6 +87,7 @@ class PollenSpan(contextlib.ExitStack):
         self.with_pyroscope = with_pyroscope
         self.pyroscope_tags = pyroscope_tags
 
+    @no_type_check
     def __enter__(self):
         """
         Returns only the opentelemetry Span obj for now
@@ -109,16 +112,16 @@ class PollenSpan(contextlib.ExitStack):
         return stack
 
 
-def tracer(service_name: str, grpc_type: str = ""):
+def tracer(service_name: str, grpc_type: str = "") -> trace.Tracer | None:
     if otel_spans_enabled():
         match grpc_type:
             case "":
                 # not auto-instrumentate
                 pass
             case "server":
-                grpc_instrumentation.GrpcInstrumentorServer().instrument()
+                grpc_instrumentation.GrpcInstrumentorServer().instrument()  # type: ignore
             case "client":
-                grpc_instrumentation.GrpcInstrumentorClient().instrument()
+                grpc_instrumentation.GrpcInstrumentorClient().instrument()  # type: ignore
             case _:
                 ValueError("Sorry, no numbers below zero")
 
@@ -139,12 +142,12 @@ def tracer(service_name: str, grpc_type: str = ""):
     return None
 
 
-def span_links(span, spans=[]):
+def span_links(span: trace.Span, spans: List[trace.Link] = []) -> List[trace.Link]:
     spans.append(trace.Link(span.get_span_context()))
     return spans
 
 
-def configure_pyroscope(service_name, tags={}):
+def configure_pyroscope(service_name: str, tags: Dict[str, str]) -> None:
     if pyroscope_enabled():
         pyroscope.configure(
             application_name=service_name,  # replace this with some name for your application
@@ -162,7 +165,7 @@ def configure_pyroscope(service_name, tags={}):
         )
 
 
-def first_span(key):
+def first_span(key: str) -> trace.Span:
     if key not in first_spans:
         first_spans[key] = trace.get_current_span()
         print("first_span key:", key, first_spans[key])
@@ -173,25 +176,25 @@ def first_span(key):
 # dummy function to be disabled when otel spans off
 
 
-def real_travel_span(name, start_time, tracer, context=None) -> None:
+def real_travel_span(name: str, start_time: int, tracer: trace.Tracer, context: trace.SpanContext | None = None) -> None:
     """
     Creates a span with a provided start_time.
     This is a workaround to simulate having started the span in the past.
     It's used to create a "fake" span for messages traveling between processes.
     """
-    with tracer.start_span(name, start_time=start_time, context=context):
+    with tracer.start_span(name, start_time=start_time, context=context):  # type: ignore
         pass
 
 
-def dummy_travel_span(name, start_time, tracer, context=None) -> None:
+def dummy_travel_span(name: str, start_time: int, tracer: None, context: Any = None) -> None:
     pass
 
 
 TRACEPARENT_STR = "traceparent"
 
 
-def real_traceparent():
-    carrier = {}
+def real_traceparent() -> str:
+    carrier: Dict[str, str] = {}
     TraceContextTextMapPropagator().inject(carrier)
     return carrier[TRACEPARENT_STR]
 
@@ -200,12 +203,12 @@ def dummy_traceparent() -> str:
     return ""
 
 
-def real_ctx_from_traceparent(traceparent):
+def real_ctx_from_traceparent(traceparent: str) -> context.Context:
     carrier = {TRACEPARENT_STR: traceparent}
     return TraceContextTextMapPropagator().extract(carrier=carrier)
 
 
-def dummy_ctx_from_traceparent() -> None:
+def dummy_ctx_from_traceparent(_: str) -> None:
     return None
 
 
@@ -213,7 +216,7 @@ travel_span = real_travel_span
 traceparent = real_traceparent
 ctx_from_traceparent = real_ctx_from_traceparent
 if not otel_spans_enabled():
-    travel_span = dummy_travel_span
+    travel_span = dummy_travel_span  # type: ignore
     traceparent = dummy_traceparent
-    ctx_from_traceparent = dummy_ctx_from_traceparent
+    ctx_from_traceparent = dummy_ctx_from_traceparent  # type: ignore
 #######################################################################################

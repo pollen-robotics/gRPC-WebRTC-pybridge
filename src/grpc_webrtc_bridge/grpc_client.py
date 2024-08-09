@@ -1,5 +1,5 @@
 import logging
-from typing import AsyncGenerator
+from typing import Any, AsyncGenerator
 
 import grpc
 from google.protobuf.empty_pb2 import Empty
@@ -27,7 +27,7 @@ class GRPCClient:
         self,
         host: str,
         port: int,
-        tracer=None,
+        tracer: Any = None,
     ) -> None:
         self.logger = logging.getLogger(__name__)
         if tracer is None:
