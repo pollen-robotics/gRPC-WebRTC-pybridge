@@ -216,7 +216,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--webrtc-signalling-host",
         type=str,
-        default="signalling-server",
+        default="localhost",
         help="Host of the gstreamer webrtc signalling server.",
     )
     parser.add_argument(
