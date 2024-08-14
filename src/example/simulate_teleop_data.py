@@ -144,6 +144,22 @@ class TeleopApp:
             duration=FloatValue(value=1.0),
         )
 
+    def turn_on_arms(self, channel: GstWebRTC.WebRTCDataChannel) -> None:
+        commands = AnyCommands(
+            commands=[
+                AnyCommand(  # right arm
+                    arm_command=ArmCommand(turn_on = self.connection.reachy.r_arm.part_id),
+                ),
+                AnyCommand(  # left arm
+                    arm_command=ArmCommand(turn_on = self.connection.reachy.l_arm.part_id),
+                ),
+            ],
+        )
+
+        byte_data = commands.SerializeToString()
+        gbyte_data = GLib.Bytes.new(byte_data)
+        channel.send_data(gbyte_data)
+
     def ensure_send_command(self, channel: GstWebRTC.WebRTCDataChannel, freq: float = 100) -> None:
         async def send_command() -> None:
             radius = 0.2  # Circle radius
@@ -191,6 +207,7 @@ class TeleopApp:
 
                 await asyncio.sleep(1 / frequency)
 
+        self.turn_on_arms(channel)
         asyncio.run_coroutine_threadsafe(send_command(), self.consumer._asyncloop)
 
 
