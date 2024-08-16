@@ -16,7 +16,7 @@ from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapProp
 from pyroscope import otel
 from viztracer import VizTracer
 
-from .tracing_helper_constants import localhoststr
+localhoststr = "localhost"
 
 otel_rootctx = context.get_current()
 first_spans = {}
@@ -94,13 +94,17 @@ class PollenSpan(contextlib.ExitStack):
         """
         stack = super().__enter__()
         self.span = self.enter_context(
-            self.tracer.start_as_current_span(self.trace_name, kind=self.kind, context=self.context)
+            self.tracer.start_as_current_span(
+                self.trace_name, kind=self.kind, context=self.context
+            )
             if otel_spans_enabled()
             else contextlib.nullcontext(DummySpan)
         )
 
         if pyroscope_enabled() and self.with_pyroscope:
-            self.pyroscope = self.enter_context(pyroscope.tag_wrapper(self.pyroscope_tags))
+            self.pyroscope = self.enter_context(
+                pyroscope.tag_wrapper(self.pyroscope_tags)
+            )
         if viztracer_enabled() and self.with_viztracer:
             ctx = self.span.get_span_context()
             self.viztracer = VizTracer(
@@ -112,7 +116,52 @@ class PollenSpan(contextlib.ExitStack):
         return stack
 
 
-def tracer(service_name: str, grpc_type: str = "") -> trace.Tracer | None:
+#####################################################################
+# Python GC Tracing
+import gc
+import time
+
+_gc_start = None
+# _gc_span = None
+_service_name = None
+_tracer = None
+
+
+def gc_callback(phase, info):
+    global _gc_start, _service_name, _tracer
+    # global _gc_span
+
+    if phase == "start" and _gc_start is not None:
+        print(f"WRONG START, non-None _gc_start:{_gc_start}")
+    if phase == "start" and _gc_start is None:
+        _gc_start = time.time_ns()
+        # if otel_spans_enabled():
+        #     _gc_span = _tracer.start_span("python_gc")  # type: ignore
+    if phase == "stop" and _gc_start is None:
+        print(f"WRONG STOP, None _gc_start:{_gc_start}")
+    if phase == "stop" and _gc_start is not None:
+        now = time.time_ns()
+        duration = (now - _gc_start) / (1e6)
+        if duration > 20:
+            print("*" * 40)
+            print(f"{_service_name}::python_gc stop: {duration:.3f}ms")
+            print("*" * 40)
+        if otel_spans_enabled():
+            # _gc_span.end()  # type: ignore
+            with _tracer.start_span("python_gc", start_time=_gc_start):  # type: ignore
+                pass
+        _gc_start = None
+
+
+#####################################################################
+
+
+def tracer(
+    service_name: str, grpc_type: str = "", gc_trace: bool = True
+) -> trace.Tracer | None:
+    global _tracer, _service_name
+    _service_name = service_name
+
     if otel_spans_enabled():
         match grpc_type:
             case "":
@@ -131,14 +180,23 @@ def tracer(service_name: str, grpc_type: str = "") -> trace.Tracer | None:
 
         if pyroscope_enabled():
             provider.add_span_processor(otel.PyroscopeSpanProcessor())
-        provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(endpoint=f"http://{localhoststr}:4317")))
+        provider.add_span_processor(
+            BatchSpanProcessor(
+                OTLPSpanExporter(endpoint=f"http://{localhoststr}:4317"),
+                max_queue_size=150,
+                max_export_batch_size=5,
+            )
+        )
 
         trace.set_tracer_provider(provider)
         # trace.get_tracer_provider().add_span_processor(
         #     BatchSpanProcessor(OTLPSpanExporter(endpoint="http://localhost:4317"))
         # )
+        _tracer = trace.get_tracer(service_name)
+        gc.callbacks.append(gc_callback)
+        return _tracer
 
-        return trace.get_tracer(service_name)
+    gc.callbacks.append(gc_callback)
     return None
 
 
@@ -176,7 +234,12 @@ def first_span(key: str) -> trace.Span:
 # dummy function to be disabled when otel spans off
 
 
-def real_travel_span(name: str, start_time: int, tracer: trace.Tracer, context: trace.SpanContext | None = None) -> None:
+def real_travel_span(
+    name: str,
+    start_time: int,
+    tracer: trace.Tracer,
+    context: trace.SpanContext | None = None,
+) -> None:
     """
     Creates a span with a provided start_time.
     This is a workaround to simulate having started the span in the past.
@@ -186,7 +249,9 @@ def real_travel_span(name: str, start_time: int, tracer: trace.Tracer, context: 
         pass
 
 
-def dummy_travel_span(name: str, start_time: int, tracer: None, context: Any = None) -> None:
+def dummy_travel_span(
+    name: str, start_time: int, tracer: None, context: Any = None
+) -> None:
     pass
 
 
