@@ -148,10 +148,10 @@ class TeleopApp:
         commands = AnyCommands(
             commands=[
                 AnyCommand(  # right arm
-                    arm_command=ArmCommand(turn_on = self.connection.reachy.r_arm.part_id),
+                    arm_command=ArmCommand(turn_on=self.connection.reachy.r_arm.part_id),
                 ),
                 AnyCommand(  # left arm
-                    arm_command=ArmCommand(turn_on = self.connection.reachy.l_arm.part_id),
+                    arm_command=ArmCommand(turn_on=self.connection.reachy.l_arm.part_id),
                 ),
             ],
         )

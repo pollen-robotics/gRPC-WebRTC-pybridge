@@ -1,5 +1,7 @@
 import contextlib
+import gc
 import os
+import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, no_type_check
 
@@ -94,17 +96,13 @@ class PollenSpan(contextlib.ExitStack):
         """
         stack = super().__enter__()
         self.span = self.enter_context(
-            self.tracer.start_as_current_span(
-                self.trace_name, kind=self.kind, context=self.context
-            )
+            self.tracer.start_as_current_span(self.trace_name, kind=self.kind, context=self.context)
             if otel_spans_enabled()
             else contextlib.nullcontext(DummySpan)
         )
 
         if pyroscope_enabled() and self.with_pyroscope:
-            self.pyroscope = self.enter_context(
-                pyroscope.tag_wrapper(self.pyroscope_tags)
-            )
+            self.pyroscope = self.enter_context(pyroscope.tag_wrapper(self.pyroscope_tags))
         if viztracer_enabled() and self.with_viztracer:
             ctx = self.span.get_span_context()
             self.viztracer = VizTracer(
@@ -118,16 +116,13 @@ class PollenSpan(contextlib.ExitStack):
 
 #####################################################################
 # Python GC Tracing
-import gc
-import time
-
 _gc_start = None
 # _gc_span = None
 _service_name = None
 _tracer = None
 
 
-def gc_callback(phase, info):
+def gc_callback(phase, info):  # type: ignore
     global _gc_start, _service_name, _tracer
     # global _gc_span
 
@@ -156,9 +151,7 @@ def gc_callback(phase, info):
 #####################################################################
 
 
-def tracer(
-    service_name: str, grpc_type: str = "", gc_trace: bool = True
-) -> trace.Tracer | None:
+def tracer(service_name: str, grpc_type: str = "", gc_trace: bool = True) -> trace.Tracer | None:
     global _tracer, _service_name
     _service_name = service_name
 
@@ -249,9 +242,7 @@ def real_travel_span(
         pass
 
 
-def dummy_travel_span(
-    name: str, start_time: int, tracer: None, context: Any = None
-) -> None:
+def dummy_travel_span(name: str, start_time: int, tracer: None, context: Any = None) -> None:
     pass
 
 
