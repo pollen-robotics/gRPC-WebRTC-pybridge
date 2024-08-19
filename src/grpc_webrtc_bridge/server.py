@@ -27,6 +27,7 @@ from reachy2_sdk_api.webrtc_bridge_pb2 import (
 )
 
 from .grpc_client import GRPCClient
+from .tracing_helper import configure_pyroscope, tracer
 
 gi.require_version("Gst", "1.0")
 
@@ -37,6 +38,15 @@ class GRPCWebRTCBridge:
     def __init__(self, args: argparse.Namespace) -> None:
         self.logger = logging.getLogger(__name__)
         pc.start_http_server(10001)
+        NODE_NAME = "grpc-webrtc_bridge"
+        configure_pyroscope(
+            NODE_NAME,
+            tags={
+                "server": "false",
+                "client": "true",
+            },
+        )
+        self.tracer = tracer(NODE_NAME, grpc_type="client")
         # self.sum_time_important_commands = pc.Summary('webrtcbridge_time_important_commands',
         #                                               'Time spent during handle important commands')
         self.counter_all_commands = pc.Counter("webrtcbridge_all_commands", "Amount of commands received")
@@ -65,7 +75,7 @@ class GRPCWebRTCBridge:
         def on_new_session(session: GstSession) -> None:
             pc = session.pc
 
-            grpc_client = GRPCClient(args.grpc_host, args.grpc_port)
+            grpc_client = GRPCClient(args.grpc_host, args.grpc_port, self.tracer)
 
             data_channel = pc.emit("create-data-channel", "service", None)
 
@@ -144,6 +154,12 @@ class GRPCWebRTCBridge:
         self.logger.error(f"Error on commands channel: {error.message}")
 
     async def _send_joint_state(self, channel: GstWebRTC.WebRTCDataChannel, request: Connect, grpc_client: GRPCClient) -> None:
+        # span_links = tracing_helper.span_links([tracing_helper.trace.get_current_span().get_span_context()])
+        # with self.tracer.start_as_current_span(f"_send_joint_state",
+        #                                        kind=tracing_helper.trace.SpanKind.INTERNAL,
+        #                                        context=tracing_helper.otel_rootctx,
+        #                                        links=span_links,
+        #                                        ):
         self.logger.info("start streaming state")
         async for state in grpc_client.get_reachy_state(
             request.reachy_id,
@@ -156,6 +172,12 @@ class GRPCWebRTCBridge:
     async def _send_joint_audit_status(
         self, channel: GstWebRTC.WebRTCDataChannel, request: Connect, grpc_client: GRPCClient
     ) -> None:
+        # span_links = tracing_helper.span_links([tracing_helper.trace.get_current_span().get_span_context()])
+        # with self.tracer.start_as_current_span(f"_send_joint_audit_status",
+        #                                        kind=tracing_helper.trace.SpanKind.INTERNAL,
+        #                                        context=tracing_helper.otel_rootctx,
+        #                                        links=span_links,
+        #                                        ):
         self.logger.info("start streaming audit status")
         async for state in grpc_client.get_reachy_audit_status(
             request.reachy_id,
@@ -414,7 +436,7 @@ def main() -> int:
 
     time.sleep(2)
 
-    grpc_client = GRPCClient(args.grpc_host, args.grpc_port)
+    grpc_client = GRPCClient(args.grpc_host, args.grpc_port, bridge.tracer)
     part_handlers = {
         "neck": grpc_client.handle_neck_command,
         "r_arm": grpc_client.handle_arm_command,
@@ -423,6 +445,22 @@ def main() -> int:
         "l_hand": grpc_client.handle_hand_command,
         "mobile_base": grpc_client.handle_mobile_base_command,
     }
+
+    ########################################################################
+    # NOTE used for testing code that instantiates multiple grpc servers
+    # grpc_clients = []
+    # for nn in range(0, 6):
+    #     grpc_clients.append(GRPCClient(args.grpc_host, args.grpc_port+nn, None))
+    # part_handlers = {
+    #     "neck": grpc_clients[0].handle_neck_command,
+    #     "r_arm": grpc_clients[1].handle_arm_command,
+    #     "l_arm": grpc_clients[2].handle_arm_command,
+    #     "r_hand": grpc_clients[3].handle_hand_command,
+    #     "l_hand": grpc_clients[4].handle_hand_command,
+    #     "mobile_base": grpc_clients[5].handle_mobile_base_command,
+    # }
+    # grpc_client = grpc_clients[-1]
+    ########################################################################
 
     last_freq_counter = {"neck": 0, "r_arm": 0, "l_arm": 0, "r_hand": 0, "l_hand": 0, "mobile_base": 0}
     last_freq_update = {
