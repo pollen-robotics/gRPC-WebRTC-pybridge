@@ -14,7 +14,7 @@ from typing import Callable, Dict, List
 import gi
 
 # from queue import Queue
-import prometheus_client as pc
+import prometheus_client as prc
 from gst_signalling import GstSignallingProducer
 from gst_signalling.gst_abstract_role import GstSession
 from reachy2_sdk_api.webrtc_bridge_pb2 import (
@@ -37,7 +37,7 @@ from gi.repository import GLib, Gst, GstWebRTC  # noqa : E402
 class GRPCWebRTCBridge:
     def __init__(self, args: argparse.Namespace) -> None:
         self.logger = logging.getLogger(__name__)
-        pc.start_http_server(10001)
+        prc.start_http_server(10001)
         NODE_NAME = "grpc-webrtc_bridge"
         configure_pyroscope(
             NODE_NAME,
@@ -47,11 +47,11 @@ class GRPCWebRTCBridge:
             },
         )
         self.tracer = tracer(NODE_NAME, grpc_type="client")
-        # self.sum_time_important_commands = pc.Summary('webrtcbridge_time_important_commands',
+        # self.sum_time_important_commands = prc.Summary('webrtcbridge_time_important_commands',
         #                                               'Time spent during handle important commands')
-        self.counter_all_commands = pc.Counter("webrtcbridge_all_commands", "Amount of commands received")
-        self.counter_important_commands = pc.Counter("webrtcbridge_important_commands", "Amount of important commands received")
-        self.counter_dropped_commands = pc.Counter("webrtcbridge_dropped_commands", "Amount of commands dropped")
+        self.counter_all_commands = prc.Counter("webrtcbridge_all_commands", "Amount of commands received")
+        self.counter_important_commands = prc.Counter("webrtcbridge_important_commands", "Amount of important commands received")
+        self.counter_dropped_commands = prc.Counter("webrtcbridge_dropped_commands", "Amount of commands dropped")
 
         self.important_queue: Queue[AnyCommands] = Queue()
         self.std_queue: Dict[str, deque[AnyCommand]] = {
@@ -335,7 +335,7 @@ def msg_handling(
     logger: logging.Logger,
     part_name: str,
     part_handler: Callable[[GRPCClient], None],
-    summary: pc.Summary,
+    summary: prc.Summary,
     last_freq_counter: Dict[str, int],
     last_freq_update: Dict[str, float],
 ) -> None:
@@ -365,7 +365,7 @@ def handle_std_queue_routine(
     bridge: GRPCWebRTCBridge,
 ) -> None:
     logger = logging.getLogger(__name__)
-    sum_part = pc.Summary(f"webrtcbridge_commands_time_{part_name}", f"Time spent during {part_name} commands")
+    sum_part = prc.Summary(f"webrtcbridge_commands_time_{part_name}", f"Time spent during {part_name} commands")
 
     while bridge.bridge_running:
         try:
@@ -376,7 +376,7 @@ def handle_std_queue_routine(
 
 
 def handle_important_queue_routine(grpc_client: GRPCClient, bridge: GRPCWebRTCBridge) -> None:
-    sum_important = pc.Summary("webrtcbridge_commands_time_important", "Time spent during important commands")
+    sum_important = prc.Summary("webrtcbridge_commands_time_important", "Time spent during important commands")
     while bridge.bridge_running:
         try:
             msg = bridge.important_queue.get(timeout=1)
