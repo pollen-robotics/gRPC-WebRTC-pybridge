@@ -27,7 +27,7 @@ from reachy2_sdk_api.webrtc_bridge_pb2 import (
 )
 
 from .grpc_client import GRPCClient
-from .tracing_helper import configure_pyroscope, tracer
+import reachy2_monitoring as rm
 
 gi.require_version("Gst", "1.0")
 
@@ -39,14 +39,14 @@ class GRPCWebRTCBridge:
         self.logger = logging.getLogger(__name__)
         prc.start_http_server(10001)
         NODE_NAME = "grpc-webrtc_bridge"
-        configure_pyroscope(
+        rm.configure_pyroscope(
             NODE_NAME,
             tags={
                 "server": "false",
                 "client": "true",
             },
         )
-        self.tracer = tracer(NODE_NAME, grpc_type="client")
+        self.tracer = rm.tracer(NODE_NAME, grpc_type="client")
         # self.sum_time_important_commands = prc.Summary('webrtcbridge_time_important_commands',
         #                                               'Time spent during handle important commands')
         self.counter_all_commands = prc.Counter("webrtcbridge_all_commands", "Amount of commands received")
@@ -154,10 +154,10 @@ class GRPCWebRTCBridge:
         self.logger.error(f"Error on commands channel: {error.message}")
 
     async def _send_joint_state(self, channel: GstWebRTC.WebRTCDataChannel, request: Connect, grpc_client: GRPCClient) -> None:
-        # span_links = tracing_helper.span_links([tracing_helper.trace.get_current_span().get_span_context()])
+        # span_links = rm.span_links([rm.trace.get_current_span().get_span_context()])
         # with self.tracer.start_as_current_span(f"_send_joint_state",
-        #                                        kind=tracing_helper.trace.SpanKind.INTERNAL,
-        #                                        context=tracing_helper.otel_rootctx,
+        #                                        kind=rm.trace.SpanKind.INTERNAL,
+        #                                        context=rm.otel_rootctx,
         #                                        links=span_links,
         #                                        ):
         self.logger.info("start streaming state")
@@ -172,10 +172,10 @@ class GRPCWebRTCBridge:
     async def _send_joint_audit_status(
         self, channel: GstWebRTC.WebRTCDataChannel, request: Connect, grpc_client: GRPCClient
     ) -> None:
-        # span_links = tracing_helper.span_links([tracing_helper.trace.get_current_span().get_span_context()])
+        # span_links = rm.span_links([rm.trace.get_current_span().get_span_context()])
         # with self.tracer.start_as_current_span(f"_send_joint_audit_status",
-        #                                        kind=tracing_helper.trace.SpanKind.INTERNAL,
-        #                                        context=tracing_helper.otel_rootctx,
+        #                                        kind=rm.trace.SpanKind.INTERNAL,
+        #                                        context=rm.otel_rootctx,
         #                                        links=span_links,
         #                                        ):
         self.logger.info("start streaming audit status")
