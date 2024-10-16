@@ -6,9 +6,10 @@ import sys
 import time
 from collections import deque
 from queue import Empty, Queue
+import concurrent
 
 # from multiprocessing import Process, Queue,
-from threading import Thread
+from threading import Thread, Event
 from typing import Callable, Dict, List
 
 import gi
@@ -53,23 +54,15 @@ class GRPCWebRTCBridge:
         self.counter_important_commands = pc.Counter("webrtcbridge_important_commands", "Amount of important commands received")
         self.counter_dropped_commands = pc.Counter("webrtcbridge_dropped_commands", "Amount of commands dropped")
 
-        self.important_queue: Queue[AnyCommands] = Queue()
-        self.std_queue: Dict[str, deque[AnyCommand]] = {
-            "neck": deque(maxlen=1),
-            "r_arm": deque(maxlen=1),
-            "l_arm": deque(maxlen=1),
-            "r_hand": deque(maxlen=1),
-            "l_hand": deque(maxlen=1),
-            "mobile_base": deque(maxlen=1),
-        }
-
         self.producer = GstSignallingProducer(
             host=args.webrtc_signaling_host,
             port=args.webrtc_signaling_port,
             name="grpc_webrtc_bridge",
         )
 
-        self.bridge_running = True
+        self._threads_running: Dict[str, Event] = {}
+        self._futures_running: Dict[str, [concurrent.futures.Future]] = {}
+
 
         @self.producer.on("new_session")  # type: ignore[misc]
         def on_new_session(session: GstSession) -> None:
@@ -77,26 +70,92 @@ class GRPCWebRTCBridge:
 
             grpc_client = GRPCClient(args.grpc_host, args.grpc_port, self.tracer)
 
+            important_queue: Queue[AnyCommands] = Queue()
+            std_queue: Dict[str, deque[AnyCommand]] = {
+                "neck": deque(maxlen=1),
+                "r_arm": deque(maxlen=1),
+                "l_arm": deque(maxlen=1),
+                "r_hand": deque(maxlen=1),
+                "l_hand": deque(maxlen=1),
+                "mobile_base": deque(maxlen=1),
+            }
+
+            self.configure_grpc_client_threads(grpc_client, session, important_queue, std_queue)
+
             data_channel = pc.emit("create-data-channel", "service", None)
 
             if data_channel:
                 data_channel.connect("on-open", self.on_open_service_channel)
-                data_channel.connect("on-message-data", self.on_data_service_channel, grpc_client, pc)
+                data_channel.connect("on-close", self.on_close_service_channel, important_queue, grpc_client, session)
+                data_channel.connect("on-message-data", self.on_data_service_channel, grpc_client, session, important_queue, std_queue)
             else:
                 self.logger.error("Failed to create data channel")
+
+        @self.producer.on("close_session")  # type: ignore[misc]
+        def on_session_closed(session: GstSession) -> None:
+            self.logger.info(f"Session closed. peer id {session.peer_id}")            
+            thread_cancel = self._threads_running.pop(session.peer_id)
+            thread_cancel.set()  
+
+    def configure_grpc_client_threads(self, grpc_client: GRPCClient, session: GstSession, important_queue: Queue[AnyCommands], std_queue: Dict[str, deque[AnyCommand]]) -> None:
+        part_handlers = {
+            "neck": grpc_client.handle_neck_command,
+            "r_arm": grpc_client.handle_arm_command,
+            "l_arm": grpc_client.handle_arm_command,
+            "r_hand": grpc_client.handle_hand_command,
+            "l_hand": grpc_client.handle_hand_command,
+            "mobile_base": grpc_client.handle_mobile_base_command,
+        }
+
+        last_freq_counter = {"neck": 0, "r_arm": 0, "l_arm": 0, "r_hand": 0, "l_hand": 0, "mobile_base": 0}
+        last_freq_update = {
+            "neck": time.time(),
+            "r_arm": time.time(),
+            "l_arm": time.time(),
+            "r_hand": time.time(),
+            "l_hand": time.time(),
+            "mobile_base": time.time(),
+        }
+
+        thread_cancel = Event()
+        self._threads_running[session.peer_id] = thread_cancel
+
+        for part in std_queue.keys():
+            Thread(
+                target=handle_std_queue_routine,
+                args=(std_queue[part], part, part_handlers[part], last_freq_counter, last_freq_update, thread_cancel),
+                daemon=True,
+            ).start()
+
+        Thread(
+            target=handle_important_queue_routine,
+            args=(
+                grpc_client,
+                #bridge,
+                important_queue,
+                thread_cancel,
+            ),
+            daemon=True,
+        ).start() 
 
     def on_open_service_channel(self, channel: GstWebRTC.WebRTCDataChannel) -> None:
         self.logger.info("channel service opened")
 
+    def on_close_service_channel(self, channel: GstWebRTC.WebRTCDataChannel, important_queue, grpc_client, session) -> None:
+        self.logger.info("channel service closed")       
+        self.logger.info(f"{important_queue.qsize()} important commands left in queue")      
+         asyncio.run_coroutine_threadsafe(grpc_client.close(), self.producer._asyncloop)
+        grpc_client = None
+
     def on_data_service_channel(
-        self, data_channel: GstWebRTC.WebRTCDataChannel, message: GLib.Bytes, grpc_client: GRPCClient, pc: Gst.Element
+        self, data_channel: GstWebRTC.WebRTCDataChannel, message: GLib.Bytes, grpc_client: GRPCClient, session: GstSession, important_queue, std_queue
     ) -> None:
         self.logger.debug(f"Message from DataChannel: {message}")
         request = ServiceRequest()
         request.ParseFromString(message.get_data())
 
         asyncio.run_coroutine_threadsafe(
-            self.handle_service_request(request, data_channel, grpc_client, pc), self.producer._asyncloop
+            self.handle_service_request(request, data_channel, grpc_client, session, important_queue, std_queue), self.producer._asyncloop
         )
 
     async def serve4ever(self) -> None:
@@ -104,17 +163,17 @@ class GRPCWebRTCBridge:
 
     async def close(self) -> None:
         self.logger.info("Close bridge")
-        self.bridge_running = False
+        self.logger.debug(f"{len(self.producer.sessions)} sessions remaining")
         await self.producer.close()
 
     # Handle service request
     async def handle_service_request(
-        self, request: ServiceRequest, data_channel: GstWebRTC.WebRTCDataChannel, grpc_client: GRPCClient, pc: Gst.Element
+        self, request: ServiceRequest, data_channel: GstWebRTC.WebRTCDataChannel, grpc_client: GRPCClient, session: GstSession, important_queue: Queue[AnyCommands], std_queue: Dict[str, deque[AnyCommand]]
     ) -> None:
         self.logger.debug(f"Received service request message: {request}")
 
         if request.HasField("get_reachy"):
-            resp = self.handle_get_reachy_request(grpc_client)
+            resp = await self.handle_get_reachy_request(grpc_client)
 
             self.logger.debug(f"Sending service response message: {resp}")
             byte_data = resp.SerializeToString()
@@ -122,14 +181,15 @@ class GRPCWebRTCBridge:
             data_channel.send_data(gbyte_data)
 
         elif request.HasField("connect"):
-            resp = await self.handle_connect_request(request.connect, grpc_client, pc)
+            resp = await self.handle_connect_request(request.connect, grpc_client, session, important_queue, std_queue)
 
         elif request.HasField("disconnect"):
             resp = await self.handle_disconnect_request()
 
-    def handle_get_reachy_request(self, grpc_client: GRPCClient) -> ServiceResponse:
-        reachy = grpc_client.get_reachy()
-
+    async def handle_get_reachy_request(self, grpc_client: GRPCClient) -> ServiceResponse:
+        self.logger.debug("Ask for reachy state")
+        reachy = await grpc_client.get_reachy()
+        self.logger.debug(f"Get reachy state: {reachy}")
         resp = ServiceResponse(
             connection_status=ConnectionStatus(
                 connected=True,
@@ -144,11 +204,20 @@ class GRPCWebRTCBridge:
     def on_open_state_channel(self, channel: GstWebRTC.WebRTCDataChannel) -> None:
         self.logger.info("channel state opened")
 
+    def on_close_state_channel(self, channel: GstWebRTC.WebRTCDataChannel) -> None:
+        self.logger.info("channel state closed")
+
+    def on_close_audit_channel(self, channel: GstWebRTC.WebRTCDataChannel) -> None:
+        self.logger.info("channel audit status closed")
+
     def on_open_audit_channel(self, channel: GstWebRTC.WebRTCDataChannel) -> None:
         self.logger.info("channel audit status opened")
 
     def on_error_state_channel(self, channel: GstWebRTC.WebRTCDataChannel, error: GLib.Error) -> None:
         self.logger.error(f"Error on state channel: {error.message}")
+
+    def on_error_audit_channel(self, channel: GstWebRTC.WebRTCDataChannel, error: GLib.Error) -> None:
+        self.logger.error(f"Error on audit status channel: {error.message}")
 
     def on_error_commands_channel(self, channel: GstWebRTC.WebRTCDataChannel, error: GLib.Error) -> None:
         self.logger.error(f"Error on commands channel: {error.message}")
@@ -161,17 +230,22 @@ class GRPCWebRTCBridge:
         #                                        links=span_links,
         #                                        ):
         self.logger.info("start streaming state")
-        async for state in grpc_client.get_reachy_state(
-            request.reachy_id,
-            request.update_frequency,
-        ):
-            byte_data = state.SerializeToString()
-            gbyte_data = GLib.Bytes.new(byte_data)
-            channel.send_data(gbyte_data)
+        
+        try:
+            async for state in grpc_client.get_reachy_state(
+                request.reachy_id,
+                request.update_frequency,
+            ):
+                byte_data = state.SerializeToString()
+                gbyte_data = GLib.Bytes.new(byte_data)
+                channel.send_data(gbyte_data)
+        except Exception as e:
+            self.logger.error(f"Error while streaming state: {e}")
+        
+        self.logger.debug("leaving streaming state")
 
     async def _send_joint_audit_status(
-        self, channel: GstWebRTC.WebRTCDataChannel, request: Connect, grpc_client: GRPCClient
-    ) -> None:
+        self, channel: GstWebRTC.WebRTCDataChannel, request: Connect, grpc_client: GRPCClient) -> None:
         # span_links = tracing_helper.span_links([tracing_helper.trace.get_current_span().get_span_context()])
         # with self.tracer.start_as_current_span(f"_send_joint_audit_status",
         #                                        kind=tracing_helper.trace.SpanKind.INTERNAL,
@@ -179,46 +253,57 @@ class GRPCWebRTCBridge:
         #                                        links=span_links,
         #                                        ):
         self.logger.info("start streaming audit status")
-        async for state in grpc_client.get_reachy_audit_status(
-            request.reachy_id,
-            request.audit_frequency,
-        ):
-            byte_data = state.SerializeToString()
-            gbyte_data = GLib.Bytes.new(byte_data)
-            channel.send_data(gbyte_data)
+        try:
+            async for state in grpc_client.get_reachy_audit_status(
+                request.reachy_id,
+                request.audit_frequency,
+            ):   
+         
+                byte_data = state.SerializeToString()
+                gbyte_data = GLib.Bytes.new(byte_data)
+                channel.send_data(gbyte_data)
+        except Exception as e:
+            self.logger.error(f"Error while streaming audit state: {e}")
+        self.logger.debug("leaving streaming audit state")
 
-    async def handle_connect_request(self, request: Connect, grpc_client: GRPCClient, pc: Gst.Element) -> ServiceResponse:
+    async def handle_connect_request(self, request: Connect, grpc_client: GRPCClient, session: GstSession, important_queue: Queue[AnyCommands], std_queue: Dict[str, deque[AnyCommand]]) -> ServiceResponse:
         # Create state data channel and start sending state
+        
         if request.update_frequency >= 1000:
             max_packet_lifetime = 1
         else:
             max_packet_lifetime = (int)(1000 // request.update_frequency)
-
+        
         channel_options = Gst.Structure.new_empty("application/x-data-channel")
         channel_options.set_value("max-packet-lifetime", max_packet_lifetime)
-        data_channel_state = pc.emit("create-data-channel", f"reachy_state_{request.reachy_id.id}", channel_options)
+        
+        data_channel_state = session.pc.emit("create-data-channel", f"reachy_state_{request.reachy_id.id}", channel_options)
         if data_channel_state:
             data_channel_state.connect("on-open", self.on_open_state_channel)
+            data_channel_state.connect("on-close", self.on_close_state_channel)
             data_channel_state.connect("on-error", self.on_error_state_channel)
             asyncio.run_coroutine_threadsafe(
-                self._send_joint_state(data_channel_state, request, grpc_client), self.producer._asyncloop
+                self._send_joint_state(data_channel_state, request, grpc_client, self.producer._asyncloop
             )
         else:
             self.logger.error("Failed to create data channel state")
-        audit_channel_state = pc.emit("create-data-channel", f"reachy_audit_{request.reachy_id.id}", channel_options)
+                
+        audit_channel_state = session.pc.emit("create-data-channel", f"reachy_audit_{request.reachy_id.id}", channel_options)        
         if audit_channel_state:
             audit_channel_state.connect("on-open", self.on_open_audit_channel)
+            audit_channel_state.connect("on-close", self.on_close_audit_channel)
+            audit_channel_state.connect("on-error", self.on_error_audit_channel)
             asyncio.run_coroutine_threadsafe(
-                self._send_joint_audit_status(audit_channel_state, request, grpc_client), self.producer._asyncloop
+                self._send_joint_audit_status(audit_channel_state, request, grpc_client, self.producer._asyncloop
             )
         else:
             self.logger.error("Failed to create data channel state")
 
         channel_options = Gst.Structure.new_empty("application/x-data-channel")
         channel_options.set_value("priority", GstWebRTC.WebRTCPriorityType.HIGH)
-        reachy_command_datachannel = pc.emit("create-data-channel", f"reachy_command_{request.reachy_id.id}", channel_options)
+        reachy_command_datachannel = session.pc.emit("create-data-channel", f"reachy_command_{request.reachy_id.id}", channel_options)
         if reachy_command_datachannel:
-            reachy_command_datachannel.connect("on-message-data", self.on_reachy_command_datachannel_message, grpc_client)
+            reachy_command_datachannel.connect("on-message-data", self.on_reachy_command_datachannel_message, grpc_client, important_queue, std_queue)
             reachy_command_datachannel.connect("on-error", self.on_error_commands_channel)
         else:
             self.logger.error("Failed to create data channel command")
@@ -255,10 +340,10 @@ class GRPCWebRTCBridge:
                 self.logger.warning(f"Important command not processed: {cmd}")
         return important_msgs
 
-    def _insert_or_drop(self, queue_name: str, command: AnyCommand) -> bool:
+    def _insert_or_drop(self, std_queue: Dict[str, deque[AnyCommand]], queue_name: str, command: AnyCommand) -> bool:
         dropped = True
         try:
-            elem = self.std_queue[queue_name]
+            elem = std_queue[queue_name]
             dropped = bool(elem)  # True means len(element) > 0
             elem.append(command)  # drop current element if any (maxlen=1)
         except KeyError:
@@ -281,7 +366,7 @@ class GRPCWebRTCBridge:
         return commands_important
 
     def on_reachy_command_datachannel_message(
-        self, data_channel: GstWebRTC.WebRTCDataChannel, message: GLib.Bytes, grpc_client: GRPCClient
+        self, data_channel: GstWebRTC.WebRTCDataChannel, message: GLib.Bytes, grpc_client: GRPCClient, important_queue, std_queue
     ) -> None:
         commands = AnyCommands()
         commands.ParseFromString(message.get_data())
@@ -308,17 +393,17 @@ class GRPCWebRTCBridge:
         if not important_msgs:
             for cmd in commands.commands:
                 if cmd.HasField("arm_command"):
-                    dropped_msg += self._insert_or_drop(cmd.arm_command.arm_cartesian_goal.id.name, cmd.arm_command)
+                    dropped_msg += self._insert_or_drop(std_queue, cmd.arm_command.arm_cartesian_goal.id.name, cmd.arm_command)
                 elif cmd.HasField("hand_command"):
-                    dropped_msg += self._insert_or_drop(cmd.hand_command.hand_goal.id.name, cmd.hand_command)
+                    dropped_msg += self._insert_or_drop(std_queue, cmd.hand_command.hand_goal.id.name, cmd.hand_command)
                 elif cmd.HasField("neck_command"):
-                    dropped_msg += self._insert_or_drop("neck", cmd.neck_command)
+                    dropped_msg += self._insert_or_drop(std_queue, "neck", cmd.neck_command)
                 elif cmd.HasField("mobile_base_command"):
-                    dropped_msg += self._insert_or_drop("mobile_base", cmd.mobile_base_command)
+                    dropped_msg += self._insert_or_drop(std_queue, "mobile_base", cmd.mobile_base_command)
                 else:
                     self.logger.warning(f"Unknown command: {cmd}")
         else:
-            self.important_queue.put(commands_important)
+            important_queue.put(commands_important)
             # self.logger.debug(f"important: {commands_important}")
 
         self.counter_dropped_commands.inc(dropped_msg)
@@ -341,8 +426,8 @@ def msg_handling(
 ) -> None:
     last_freq_counter[part_name] += 1
 
-    with summary.time():
-        part_handler(message)
+    #with summary.time():
+    part_handler(message)
 
     now = time.time()
     if now - last_freq_update[part_name] > 1:
@@ -362,28 +447,40 @@ def handle_std_queue_routine(
     part_handler: Callable[[GRPCClient], None],
     last_freq_counter: Dict[str, int],
     last_freq_update: Dict[str, float],
-    bridge: GRPCWebRTCBridge,
+    #bridge: GRPCWebRTCBridge,
+    thread_cancel: Event,
 ) -> None:
     logger = logging.getLogger(__name__)
-    sum_part = pc.Summary(f"webrtcbridge_commands_time_{part_name}", f"Time spent during {part_name} commands")
-
-    while bridge.bridge_running:
+    #sum_part = pc.Summary(f"webrtcbridge_commands_time_{part_name}", f"Time spent during {part_name} commands")
+    sum_part = None
+    #while bridge.bridge_running:
+    while not thread_cancel.is_set():
         try:
             msg = std_queue.pop()
             msg_handling(msg, logger, part_name, part_handler, sum_part, last_freq_counter, last_freq_update)
         except IndexError:
             time.sleep(0.001)
+        except Exception as e:
+            logger.error(f"Error while handling {part_name} commands: {e}")
+    logger.debug(f"Thread {part_name} closed")
 
 
-def handle_important_queue_routine(grpc_client: GRPCClient, bridge: GRPCWebRTCBridge) -> None:
-    sum_important = pc.Summary("webrtcbridge_commands_time_important", "Time spent during important commands")
-    while bridge.bridge_running:
+def handle_important_queue_routine(grpc_client: GRPCClient, important_queue: Queue[AnyCommands], thread_cancel: Event) -> None:
+    logger = logging.getLogger(__name__)
+    #sum_important = pc.Summary("webrtcbridge_commands_time_important", "Time spent during important commands")
+    #while bridge.bridge_running:
+    while not thread_cancel.is_set():
         try:
-            msg = bridge.important_queue.get(timeout=1)
-            with sum_important.time():
-                grpc_client.handle_commands(msg)
+            msg = important_queue.get(timeout=1)
+            #with sum_important.time():
+            grpc_client.handle_commands(msg)
+            logger.info(f"Important commands: {msg}")
         except Empty:
-            pass  # need to proerly close the thread
+            pass  # required to properly close the thread
+            logger.warning("Empty important queue")
+        except Exception as e:
+            logger.error(f"Error while handling important commands: {e}")
+    logger.debug("Thread important queues closed")
 
 
 def main() -> int:
@@ -436,16 +533,6 @@ def main() -> int:
 
     time.sleep(2)
 
-    grpc_client = GRPCClient(args.grpc_host, args.grpc_port, bridge.tracer)
-    part_handlers = {
-        "neck": grpc_client.handle_neck_command,
-        "r_arm": grpc_client.handle_arm_command,
-        "l_arm": grpc_client.handle_arm_command,
-        "r_hand": grpc_client.handle_hand_command,
-        "l_hand": grpc_client.handle_hand_command,
-        "mobile_base": grpc_client.handle_mobile_base_command,
-    }
-
     ########################################################################
     # NOTE used for testing code that instantiates multiple grpc servers
     # grpc_clients = []
@@ -462,31 +549,8 @@ def main() -> int:
     # grpc_client = grpc_clients[-1]
     ########################################################################
 
-    last_freq_counter = {"neck": 0, "r_arm": 0, "l_arm": 0, "r_hand": 0, "l_hand": 0, "mobile_base": 0}
-    last_freq_update = {
-        "neck": time.time(),
-        "r_arm": time.time(),
-        "l_arm": time.time(),
-        "r_hand": time.time(),
-        "l_hand": time.time(),
-        "mobile_base": time.time(),
-    }
 
-    for part in bridge.std_queue.keys():
-        Thread(
-            target=handle_std_queue_routine,
-            args=(bridge.std_queue[part], part, part_handlers[part], last_freq_counter, last_freq_update, bridge),
-            daemon=True,
-        ).start()
 
-    Thread(
-        target=handle_important_queue_routine,
-        args=(
-            grpc_client,
-            bridge,
-        ),
-        daemon=True,
-    ).start()
 
     loop = asyncio.get_event_loop()
     try:
@@ -497,7 +561,6 @@ def main() -> int:
         loop.run_until_complete(bridge.close())
 
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

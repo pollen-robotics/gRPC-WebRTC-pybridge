@@ -1,5 +1,7 @@
 import logging
+import asyncio
 from typing import Any, AsyncGenerator
+
 
 import grpc
 from google.protobuf.empty_pb2 import Empty
@@ -40,7 +42,7 @@ class GRPCClient:
         self.synchro_channel = grpc.insecure_channel(f"{host}:{port}")
         self.async_channel = grpc.aio.insecure_channel(f"{host}:{port}")
 
-        self.reachy_stub_synchro = reachy_pb2_grpc.ReachyServiceStub(self.synchro_channel)
+        #self.reachy_stub_synchro = reachy_pb2_grpc.ReachyServiceStub(self.synchro_channel)
         self.reachy_stub_async = reachy_pb2_grpc.ReachyServiceStub(self.async_channel)
 
         self.arm_stub = arm_pb2_grpc.ArmServiceStub(self.synchro_channel)
@@ -49,9 +51,43 @@ class GRPCClient:
         self.mb_utility_stub = mobile_base_utility_pb2_grpc.MobileBaseUtilityServiceStub(self.synchro_channel)
         self.mb_mobility_stub = mobile_base_mobility_pb2_grpc.MobileBaseMobilityServiceStub(self.synchro_channel)
 
+        self._event_streams = asyncio.Event()
+
+    def __del__(self) -> None:
+        self.logger.debug("Deleting GRPC Client")
+        
+
+    async def close(self) -> None:
+        self.logger.debug("Closing GRPC Client")
+
+        self._event_streams.set()
+        self.logger.debug("event streams set")
+
+        '''
+        if self._stream_req_state:
+            await self._stream_req_state.cancel()
+            self.logger.debug("Closing GRPC Client. stream_req_state closed")
+        if self._stream_req_audit:
+            await self._stream_req_audit.cancel()
+            self.logger.debug("Closing GRPC Client. stream_req_audit closed")
+        
+        self.logger.debug("Closing GRPC Client. streams closed")
+        '''
+
+        self.synchro_channel.close()
+        await self.async_channel.close()
+
+        self.logger.debug("Closing GRPC Client. finished")
+
+
     # Got Reachy(s) description
-    def get_reachy(self) -> reachy_pb2.Reachy:
-        return self.reachy_stub_synchro.GetReachy(Empty())
+    async def get_reachy(self) -> reachy_pb2.Reachy:
+        #return self.reachy_stub_synchro.GetReachy(Empty())
+        self.logger.info("Getting Reachy")
+        try:
+            return await self.reachy_stub_async.GetReachy(Empty(), timeout=5, wait_for_ready=True)
+        except grpc.RpcError as e:
+            self.logger.error(f"Error while getting Reachy: {e}")
 
     # Retrieve Reachy entire state
     async def get_reachy_state(
@@ -59,13 +95,19 @@ class GRPCClient:
         reachy_id: reachy_pb2.ReachyId,
         publish_frequency: float,
     ) -> AsyncGenerator[reachy_pb2.ReachyState, None]:
-        stream_req = reachy_pb2.ReachyStreamStateRequest(
+        stream_req_state = reachy_pb2.ReachyStreamStateRequest(
             id=reachy_id,
             publish_frequency=publish_frequency,
         )
 
-        async for state in self.reachy_stub_async.StreamReachyState(stream_req):
-            yield state
+        try:
+            async for state in self.reachy_stub_async.StreamReachyState(stream_req_state):
+                if self._event_streams.is_set():
+                    self.logger.debug("Stream state interrupted")
+                    break
+                yield state
+        except grpc.RpcError as e:
+            self.logger.error(f"Error while streaming state: {e}")
 
     # Retrieve Reachy entire audit status
     async def get_reachy_audit_status(
@@ -73,13 +115,18 @@ class GRPCClient:
         reachy_id: reachy_pb2.ReachyId,
         publish_frequency: float,
     ) -> AsyncGenerator[reachy_pb2.ReachyStatus, None]:
-        stream_req = reachy_pb2.ReachyStreamAuditRequest(
+        stream_req_audit = reachy_pb2.ReachyStreamAuditRequest(
             id=reachy_id,
             publish_frequency=publish_frequency,
         )
-
-        async for state in self.reachy_stub_async.StreamAudit(stream_req):
-            yield state
+        try:
+            async for state in self.reachy_stub_async.StreamAudit(stream_req_audit):
+                if self._event_streams.is_set():
+                    self.logger.debug("Stream state audit interrupted")
+                    break
+                yield state
+        except grpc.RpcError as e:
+            self.logger.error(f"Error while streaming audit state: {e}")
 
     # Send Commands (torque and cartesian targets)
     def handle_commands(
