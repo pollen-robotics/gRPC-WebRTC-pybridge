@@ -1,7 +1,6 @@
-import logging
 import asyncio
+import logging
 from typing import Any, AsyncGenerator
-
 
 import grpc
 from google.protobuf.empty_pb2 import Empty
@@ -42,7 +41,7 @@ class GRPCClient:
         self.synchro_channel = grpc.insecure_channel(f"{host}:{port}")
         self.async_channel = grpc.aio.insecure_channel(f"{host}:{port}")
 
-        #self.reachy_stub_synchro = reachy_pb2_grpc.ReachyServiceStub(self.synchro_channel)
+        # self.reachy_stub_synchro = reachy_pb2_grpc.ReachyServiceStub(self.synchro_channel)
         self.reachy_stub_async = reachy_pb2_grpc.ReachyServiceStub(self.async_channel)
 
         self.arm_stub = arm_pb2_grpc.ArmServiceStub(self.synchro_channel)
@@ -55,37 +54,22 @@ class GRPCClient:
 
     def __del__(self) -> None:
         self.logger.debug("Deleting GRPC Client")
-        
 
     async def close(self) -> None:
         self.logger.debug("Closing GRPC Client")
 
         self._event_streams.set()
-        self.logger.debug("event streams set")
-
-        '''
-        if self._stream_req_state:
-            await self._stream_req_state.cancel()
-            self.logger.debug("Closing GRPC Client. stream_req_state closed")
-        if self._stream_req_audit:
-            await self._stream_req_audit.cancel()
-            self.logger.debug("Closing GRPC Client. stream_req_audit closed")
-        
-        self.logger.debug("Closing GRPC Client. streams closed")
-        '''
-
         self.synchro_channel.close()
         await self.async_channel.close()
 
-        self.logger.debug("Closing GRPC Client. finished")
-
+        self.logger.debug("GRPC Client closed")
 
     # Got Reachy(s) description
     async def get_reachy(self) -> reachy_pb2.Reachy:
-        #return self.reachy_stub_synchro.GetReachy(Empty())
+        # return self.reachy_stub_synchro.GetReachy(Empty())
         self.logger.info("Getting Reachy")
         try:
-            return await self.reachy_stub_async.GetReachy(Empty(), timeout=5, wait_for_ready=True)
+            return await self.reachy_stub_async.GetReachy(Empty(), timeout=20, wait_for_ready=True)
         except grpc.RpcError as e:
             self.logger.error(f"Error while getting Reachy: {e}")
 
