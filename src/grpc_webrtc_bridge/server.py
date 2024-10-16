@@ -1,6 +1,5 @@
 import argparse
 import asyncio
-import concurrent
 import logging
 import os
 import sys
@@ -37,6 +36,12 @@ from gi.repository import GLib, Gst, GstWebRTC  # noqa : E402
 
 
 class GRPCWebRTCBridge:
+    """Class that forwards commands from a gstreamer webrtc data channel to a grpc server.
+
+    It can accept commands from multiple clients and open a grpc client for each.
+    It is not recommended to have multiple clients that sends commands though (i.e. only one for teleoperation).
+    """
+
     def __init__(self, args: argparse.Namespace) -> None:
         self.logger = logging.getLogger(__name__)
         prometheus_client.start_http_server(10001)
@@ -79,7 +84,9 @@ class GRPCWebRTCBridge:
             self.counter_dropped_commands[session.peer_id] = prometheus_client.Counter(
                 f"webrtcbridge_dropped_commands_{session.peer_id.replace('-', '_')}", "Amount of commands dropped"
             )
-            # self.sum_time_important_commands = prometheus_client.Summary(f"webrtcbridge_time_important_commands_{session.peer_id}", "Time spent during handle important commands")
+            # self.sum_time_important_commands = prometheus_client.Summary(
+            #       f"webrtcbridge_time_important_commands_{session.peer_id}",
+            #       "Time spent during handle important commands")
 
             grpc_client = GRPCClient(args.grpc_host, args.grpc_port, self.tracers[session.peer_id])
             ########################################################################
@@ -161,7 +168,7 @@ class GRPCWebRTCBridge:
 
         for part in std_queue.keys():
             Thread(
-                target=handle_std_queue_routine,
+                target=self.handle_std_queue_routine,
                 args=(
                     std_queue[part],
                     part,
@@ -175,7 +182,7 @@ class GRPCWebRTCBridge:
             ).start()
 
         Thread(
-            target=handle_important_queue_routine,
+            target=self.handle_important_queue_routine,
             args=(
                 grpc_client,
                 important_queue,
@@ -196,7 +203,6 @@ class GRPCWebRTCBridge:
         session: GstSession,
     ) -> None:
         self.logger.info("channel service closed")
-        self.logger.info(f"{important_queue.qsize()} important commands left in queue")
         asyncio.run_coroutine_threadsafe(grpc_client.close(), self.producer._asyncloop)
 
     def on_data_service_channel(
@@ -222,7 +228,6 @@ class GRPCWebRTCBridge:
 
     async def close(self) -> None:
         self.logger.info("Close bridge")
-        self.logger.debug(f"{len(self.producer.sessions)} sessions remaining")
         await self.producer.close()
 
     # Handle service request
@@ -244,7 +249,6 @@ class GRPCWebRTCBridge:
             data_channel.send_data(gbyte_data)
 
         elif request.HasField("connect"):
-            self.logger.debug("Connect request")
             resp = await self.handle_connect_request(request.connect, grpc_client, session, important_queue, std_queue)
 
         elif request.HasField("disconnect"):
@@ -253,7 +257,6 @@ class GRPCWebRTCBridge:
     async def handle_get_reachy_request(self, grpc_client: GRPCClient) -> ServiceResponse:
         self.logger.debug("Ask for reachy state")
         reachy = await grpc_client.get_reachy()
-        self.logger.debug(f"Get reachy state: {reachy}")
         resp = ServiceResponse(
             connection_status=ConnectionStatus(
                 connected=True,
@@ -266,16 +269,16 @@ class GRPCWebRTCBridge:
         return resp
 
     def on_open_state_channel(self, channel: GstWebRTC.WebRTCDataChannel) -> None:
-        self.logger.info("channel state opened")
+        self.logger.debug("channel state opened")
 
     def on_close_state_channel(self, channel: GstWebRTC.WebRTCDataChannel) -> None:
-        self.logger.info("channel state closed")
+        self.logger.debug("channel state closed")
 
     def on_close_audit_channel(self, channel: GstWebRTC.WebRTCDataChannel) -> None:
-        self.logger.info("channel audit status closed")
+        self.logger.debug("channel audit status closed")
 
     def on_open_audit_channel(self, channel: GstWebRTC.WebRTCDataChannel) -> None:
-        self.logger.info("channel audit status opened")
+        self.logger.debug("channel audit status opened")
 
     def on_error_state_channel(self, channel: GstWebRTC.WebRTCDataChannel, error: GLib.Error) -> None:
         self.logger.error(f"Error on state channel: {error.message}")
@@ -493,7 +496,7 @@ class GRPCWebRTCBridge:
                     self.logger.warning(f"Unknown command: {cmd}")
         else:
             important_queue.put(commands_important)
-            # self.logger.debug(f"important: {commands_important}")
+            self.logger.debug(f"important: {commands_important}")
 
         self.counter_dropped_commands[peer_id].inc(dropped_msg)
 
@@ -503,78 +506,72 @@ class GRPCWebRTCBridge:
 
         return ServiceResponse()
 
+    def msg_handling(
+        self,
+        message: AnyCommand,
+        part_name: str,
+        part_handler: Callable[[GRPCClient], None],
+        summary: prometheus_client.Summary,
+        last_freq_counter: Dict[str, int],
+        last_freq_update: Dict[str, float],
+    ) -> None:
+        last_freq_counter[part_name] += 1
 
-def msg_handling(
-    message: AnyCommand,
-    logger: logging.Logger,
-    part_name: str,
-    part_handler: Callable[[GRPCClient], None],
-    summary: prometheus_client.Summary,
-    last_freq_counter: Dict[str, int],
-    last_freq_update: Dict[str, float],
-) -> None:
-    last_freq_counter[part_name] += 1
+        with summary.time():
+            part_handler(message)
 
-    # with summary.time():
-    part_handler(message)
+        now = time.time()
+        if now - last_freq_update[part_name] > 1:
+            current_freq_rate = int(last_freq_counter[part_name] / (now - last_freq_update[part_name]))
 
-    now = time.time()
-    if now - last_freq_update[part_name] > 1:
-        current_freq_rate = int(last_freq_counter[part_name] / (now - last_freq_update[part_name]))
+            self.logger.info(f"Freq {part_name} {current_freq_rate} Hz")
 
-        logger.info(f"Freq {part_name} {current_freq_rate} Hz")
+            last_freq_counter[part_name] = 0
+            last_freq_update[part_name] = now
 
-        last_freq_counter[part_name] = 0
-        last_freq_update[part_name] = now
+    ####################
+    # Routines
+    def handle_std_queue_routine(
+        self,
+        std_queue: deque[AnyCommand],
+        part_name: str,
+        part_handler: Callable[[GRPCClient], None],
+        last_freq_counter: Dict[str, int],
+        last_freq_update: Dict[str, float],
+        thread_cancel: Event,
+        peer_id: str,
+    ) -> None:
+        sum_part = prometheus_client.Summary(
+            f"webrtcbridge_commands_time_{part_name}_{peer_id.replace('-', '_')}", f"Time spent during {part_name} commands"
+        )
 
+        while not thread_cancel.is_set():
+            try:
+                msg = std_queue.pop()
+                self.msg_handling(msg, part_name, part_handler, sum_part, last_freq_counter, last_freq_update)
+            except IndexError:
+                time.sleep(0.001)
+            except Exception as e:
+                self.logger.error(f"Error while handling {part_name} commands: {e}")
+        self.logger.debug(f"Thread {part_name} closed")
 
-####################
-# Routines
-def handle_std_queue_routine(
-    std_queue: deque[AnyCommand],
-    part_name: str,
-    part_handler: Callable[[GRPCClient], None],
-    last_freq_counter: Dict[str, int],
-    last_freq_update: Dict[str, float],
-    thread_cancel: Event,
-    peer_id: str,
-) -> None:
-    logger = logging.getLogger(__name__)
-    sum_part = prometheus_client.Summary(
-        f"webrtcbridge_commands_time_{part_name}_{peer_id.replace('-', '_')}", f"Time spent during {part_name} commands"
-    )
+    def handle_important_queue_routine(
+        self, grpc_client: GRPCClient, important_queue: Queue[AnyCommands], thread_cancel: Event, peer_id: str
+    ) -> None:
+        sum_important = prometheus_client.Summary(
+            f"webrtcbridge_commands_time_important_{peer_id.replace('-', '_')}", "Time spent during important commands"
+        )
 
-    while not thread_cancel.is_set():
-        try:
-            msg = std_queue.pop()
-            msg_handling(msg, logger, part_name, part_handler, sum_part, last_freq_counter, last_freq_update)
-        except IndexError:
-            time.sleep(0.001)
-        except Exception as e:
-            logger.error(f"Error while handling {part_name} commands: {e}")
-    logger.debug(f"Thread {part_name} closed")
-
-
-def handle_important_queue_routine(
-    grpc_client: GRPCClient, important_queue: Queue[AnyCommands], thread_cancel: Event, peer_id: str
-) -> None:
-    logger = logging.getLogger(__name__)
-    sum_important = prometheus_client.Summary(
-        f"webrtcbridge_commands_time_important_{peer_id.replace('-', '_')}", "Time spent during important commands"
-    )
-
-    while not thread_cancel.is_set():
-        try:
-            msg = important_queue.get(timeout=1)
-            with sum_important.time():
-                grpc_client.handle_commands(msg)
-            logger.info(f"Important commands: {msg}")
-        except Empty:
-            pass  # required to properly close the thread
-            logger.warning("Empty important queue")
-        except Exception as e:
-            logger.error(f"Error while handling important commands: {e}")
-    logger.debug("Thread important queues closed")
+        while not thread_cancel.is_set():
+            try:
+                msg = important_queue.get(timeout=1)
+                with sum_important.time():
+                    grpc_client.handle_commands(msg)
+            except Empty:
+                pass  # required to properly close the thread
+            except Exception as e:
+                self.logger.error(f"Error while handling important commands: {e}")
+        self.logger.debug("Thread important queues closed")
 
 
 def main() -> int:
