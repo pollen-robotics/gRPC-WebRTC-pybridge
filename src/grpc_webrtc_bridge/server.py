@@ -15,6 +15,7 @@ import gi
 
 # from queue import Queue
 import prometheus_client as prc
+import reachy2_monitoring as rm
 from gst_signalling import GstSignallingProducer
 from gst_signalling.gst_abstract_role import GstSession
 from reachy2_sdk_api.webrtc_bridge_pb2 import (
@@ -27,7 +28,6 @@ from reachy2_sdk_api.webrtc_bridge_pb2 import (
 )
 
 from .grpc_client import GRPCClient
-import reachy2_monitoring as rm
 
 gi.require_version("Gst", "1.0")
 
@@ -50,7 +50,9 @@ class GRPCWebRTCBridge:
         # self.sum_time_important_commands = prc.Summary('webrtcbridge_time_important_commands',
         #                                               'Time spent during handle important commands')
         self.counter_all_commands = prc.Counter("webrtcbridge_all_commands", "Amount of commands received")
-        self.counter_important_commands = prc.Counter("webrtcbridge_important_commands", "Amount of important commands received")
+        self.counter_important_commands = prc.Counter(
+            "webrtcbridge_important_commands", "Amount of important commands received"
+        )
         self.counter_dropped_commands = prc.Counter("webrtcbridge_dropped_commands", "Amount of commands dropped")
 
         self.important_queue: Queue[AnyCommands] = Queue()

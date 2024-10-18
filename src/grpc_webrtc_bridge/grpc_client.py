@@ -2,6 +2,7 @@ import logging
 from typing import Any, AsyncGenerator
 
 import grpc
+import reachy2_monitoring as rm
 from google.protobuf.empty_pb2 import Empty
 from reachy2_sdk_api import (
     arm_pb2_grpc,
@@ -13,8 +14,6 @@ from reachy2_sdk_api import (
     reachy_pb2_grpc,
     webrtc_bridge_pb2,
 )
-
-import reachy2_monitoring as rm
 
 # sum_hand = pc.Summary('grpcwebrtc_client_hand_commands', 'Time spent during hand commands')
 # sum_arm =  pc.Summary('grpcwebrtc_client_arm_commands', 'Time spent during arm commands')
