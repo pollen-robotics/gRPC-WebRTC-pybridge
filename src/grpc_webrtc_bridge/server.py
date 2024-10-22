@@ -55,13 +55,22 @@ class GRPCWebRTCBridge:
             },
         )
         self.tracer = rm.tracer(NODE_NAME, grpc_type="client")
-        # self.sum_time_important_commands = prc.Summary('webrtcbridge_time_important_commands',
-        #                                               'Time spent during handle important commands')
+
         self.counter_all_commands = prc.Counter("webrtcbridge_all_commands", "Amount of commands received")
         self.counter_important_commands = prc.Counter(
             "webrtcbridge_important_commands", "Amount of important commands received"
         )
         self.counter_dropped_commands = prc.Counter("webrtcbridge_dropped_commands", "Amount of commands dropped")
+
+        self.sum_important = prc.Summary(f"webrtcbridge_commands_time_important", "Time spent during important commands")
+        self.sum_part = {
+            "neck": prc.Summary(f"webrtcbridge_commands_time_neck", f"Time spent during neck commands"),
+            "r_arm": prc.Summary(f"webrtcbridge_commands_time_r_arm", f"Time spent during r_arm commands"),
+            "l_arm": prc.Summary(f"webrtcbridge_commands_time_l_arm", f"Time spent during l_arm commands"),
+            "r_hand": prc.Summary(f"webrtcbridge_commands_time_r_hand", f"Time spent during r_hand commands"),
+            "l_hand": prc.Summary(f"webrtcbridge_commands_time_l_hand", f"Time spent during l_hand commands"),
+            "mobile_base": prc.Summary(f"webrtcbridge_commands_time_mobile_base", f"Time spent during mobile_base commands"),
+        }
 
         self.important_queue: Queue[AnyCommands] = Queue()
         self.std_queue: Dict[str, deque[AnyCommand]] = {
@@ -528,12 +537,10 @@ class GRPCWebRTCBridge:
         last_freq_update: Dict[str, float],
         thread_cancel: Event,
     ) -> None:
-        sum_part = prc.Summary(f"webrtcbridge_commands_time_{part_name}", f"Time spent during {part_name} commands")
-
         while not thread_cancel.is_set():
             try:
                 msg = std_queue.pop()
-                self.msg_handling(msg, part_name, part_handler, sum_part, last_freq_counter, last_freq_update)
+                self.msg_handling(msg, part_name, part_handler, self.sum_part[part_name], last_freq_counter, last_freq_update)
             except IndexError:
                 time.sleep(0.001)
             except Exception as e:
@@ -543,12 +550,10 @@ class GRPCWebRTCBridge:
     def handle_important_queue_routine(
         self, grpc_client: GRPCClient, important_queue: Queue[AnyCommands], thread_cancel: Event
     ) -> None:
-        sum_important = prc.Summary(f"webrtcbridge_commands_time_important", "Time spent during important commands")
-
         while not thread_cancel.is_set():
             try:
                 msg = important_queue.get(timeout=1)
-                with sum_important.time():
+                with self.sum_important.time():
                     grpc_client.handle_commands(msg)
             except Empty:
                 pass  # required to properly close the thread
