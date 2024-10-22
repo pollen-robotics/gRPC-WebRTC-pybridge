@@ -528,9 +528,7 @@ class GRPCWebRTCBridge:
         last_freq_update: Dict[str, float],
         thread_cancel: Event,
     ) -> None:
-        sum_part = prc.Summary(
-            f"webrtcbridge_commands_time_{part_name}", f"Time spent during {part_name} commands"
-        )
+        sum_part = prc.Summary(f"webrtcbridge_commands_time_{part_name}", f"Time spent during {part_name} commands")
 
         while not thread_cancel.is_set():
             try:
@@ -545,9 +543,7 @@ class GRPCWebRTCBridge:
     def handle_important_queue_routine(
         self, grpc_client: GRPCClient, important_queue: Queue[AnyCommands], thread_cancel: Event
     ) -> None:
-        sum_important = prc.Summary(
-            f"webrtcbridge_commands_time_important", "Time spent during important commands"
-        )
+        sum_important = prc.Summary(f"webrtcbridge_commands_time_important", "Time spent during important commands")
 
         while not thread_cancel.is_set():
             try:
