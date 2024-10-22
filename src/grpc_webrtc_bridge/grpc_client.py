@@ -3,6 +3,7 @@ import logging
 from typing import Any, AsyncGenerator
 
 import grpc
+import reachy2_monitoring as rm
 from google.protobuf.empty_pb2 import Empty
 from reachy2_sdk_api import (
     arm_pb2_grpc,
@@ -14,8 +15,6 @@ from reachy2_sdk_api import (
     reachy_pb2_grpc,
     webrtc_bridge_pb2,
 )
-
-from . import tracing_helper
 
 # sum_hand = pc.Summary('grpcwebrtc_client_hand_commands', 'Time spent during hand commands')
 # sum_arm =  pc.Summary('grpcwebrtc_client_arm_commands', 'Time spent during arm commands')
@@ -32,7 +31,7 @@ class GRPCClient:
     ) -> None:
         self.logger = logging.getLogger(__name__)
         if tracer is None:
-            tracer = tracing_helper.tracer(f"grpc-webrtc_bridge_{port}", grpc_type="client")
+            tracer = rm.tracer(f"grpc-webrtc_bridge_{port}", grpc_type="client")
         self.tracer = tracer
 
         self.host = host
@@ -118,7 +117,7 @@ class GRPCClient:
         commands: webrtc_bridge_pb2.AnyCommands,
     ) -> None:
         # self.logger.info(f"Received message: {commands}")
-        with tracing_helper.PollenSpan(tracer=self.tracer, trace_name="handle_commands"):
+        with rm.PollenSpan(tracer=self.tracer, trace_name="handle_commands"):
             for cmd in commands.commands:
                 if cmd.HasField("arm_command"):
                     self.handle_arm_command(cmd.arm_command)
@@ -132,66 +131,66 @@ class GRPCClient:
                     self.logger.warning(f"Unknown command : {cmd}")
 
     def handle_arm_command(self, cmd: webrtc_bridge_pb2.ArmCommand) -> None:
-        with tracing_helper.PollenSpan(tracer=self.tracer, trace_name="handle_arm_command"):
+        with rm.PollenSpan(tracer=self.tracer, trace_name="handle_arm_command"):
             if cmd.HasField("arm_cartesian_goal"):
-                with tracing_helper.PollenSpan(tracer=self.tracer, trace_name="SendArmCartesianGoal"):
+                with rm.PollenSpan(tracer=self.tracer, trace_name="SendArmCartesianGoal"):
                     self.arm_stub.SendArmCartesianGoal(cmd.arm_cartesian_goal)
             elif cmd.HasField("turn_on"):
-                with tracing_helper.PollenSpan(tracer=self.tracer, trace_name="arm_turn_on"):
+                with rm.PollenSpan(tracer=self.tracer, trace_name="arm_turn_on"):
                     self.arm_stub.TurnOn(cmd.turn_on)
             elif cmd.HasField("turn_off"):
-                with tracing_helper.PollenSpan(tracer=self.tracer, trace_name="arm_turn_off"):
+                with rm.PollenSpan(tracer=self.tracer, trace_name="arm_turn_off"):
                     self.arm_stub.TurnOff(cmd.turn_off)
             elif cmd.HasField("speed_limit"):
-                with tracing_helper.PollenSpan(tracer=self.tracer, trace_name="arm_speed_limit"):
+                with rm.PollenSpan(tracer=self.tracer, trace_name="arm_speed_limit"):
                     self.arm_stub.SetSpeedLimit(cmd.speed_limit)
             elif cmd.HasField("torque_limit"):
-                with tracing_helper.PollenSpan(tracer=self.tracer, trace_name="arm_torque_limit"):
+                with rm.PollenSpan(tracer=self.tracer, trace_name="arm_torque_limit"):
                     self.arm_stub.SetTorqueLimit(cmd.torque_limit)
             else:
                 self.logger.warning(f"Unknown arm command : {cmd}")
 
     def handle_hand_command(self, cmd: webrtc_bridge_pb2.HandCommand) -> None:
-        with tracing_helper.PollenSpan(tracer=self.tracer, trace_name="handle_hand_command"):
+        with rm.PollenSpan(tracer=self.tracer, trace_name="handle_hand_command"):
             if cmd.HasField("hand_goal"):
-                with tracing_helper.PollenSpan(tracer=self.tracer, trace_name="hand_goal"):
+                with rm.PollenSpan(tracer=self.tracer, trace_name="hand_goal"):
                     self.hand_stub.SetHandPosition(cmd.hand_goal)
             elif cmd.HasField("turn_on"):
-                with tracing_helper.PollenSpan(tracer=self.tracer, trace_name="hand_turn_on"):
+                with rm.PollenSpan(tracer=self.tracer, trace_name="hand_turn_on"):
                     self.hand_stub.TurnOn(cmd.turn_on)
             elif cmd.HasField("turn_off"):
-                with tracing_helper.PollenSpan(tracer=self.tracer, trace_name="hand_turn_off"):
+                with rm.PollenSpan(tracer=self.tracer, trace_name="hand_turn_off"):
                     self.hand_stub.TurnOff(cmd.turn_off)
             else:
                 self.logger.warning(f"Unknown hand command : {cmd}")
 
     def handle_neck_command(self, cmd: webrtc_bridge_pb2.NeckCommand) -> None:
-        with tracing_helper.PollenSpan(tracer=self.tracer, trace_name="handle_neck_command"):
+        with rm.PollenSpan(tracer=self.tracer, trace_name="handle_neck_command"):
             if cmd.HasField("neck_goal"):
-                with tracing_helper.PollenSpan(tracer=self.tracer, trace_name="neck_goal"):
+                with rm.PollenSpan(tracer=self.tracer, trace_name="neck_goal"):
                     self.head_stub.SendNeckJointGoal(cmd.neck_goal)
             elif cmd.HasField("turn_on"):
-                with tracing_helper.PollenSpan(tracer=self.tracer, trace_name="neck_turn_on"):
+                with rm.PollenSpan(tracer=self.tracer, trace_name="neck_turn_on"):
                     self.head_stub.TurnOn(cmd.turn_on)
             elif cmd.HasField("turn_off"):
-                with tracing_helper.PollenSpan(tracer=self.tracer, trace_name="neck_turn_off"):
+                with rm.PollenSpan(tracer=self.tracer, trace_name="neck_turn_off"):
                     self.head_stub.TurnOff(cmd.turn_off)
             elif cmd.HasField("speed_limit"):
-                with tracing_helper.PollenSpan(tracer=self.tracer, trace_name="neck_speed_limit"):
+                with rm.PollenSpan(tracer=self.tracer, trace_name="neck_speed_limit"):
                     self.head_stub.SetSpeedLimit(cmd.speed_limit)
             elif cmd.HasField("torque_limit"):
-                with tracing_helper.PollenSpan(tracer=self.tracer, trace_name="neck_torque_limit"):
+                with rm.PollenSpan(tracer=self.tracer, trace_name="neck_torque_limit"):
                     self.head_stub.SetTorqueLimit(cmd.torque_limit)
             else:
                 self.logger.warning(f"Unknown neck command : {cmd}")
 
     def handle_mobile_base_command(self, cmd: webrtc_bridge_pb2.MobileBaseCommand) -> None:
-        with tracing_helper.PollenSpan(tracer=self.tracer, trace_name="handle_mobile_base_command"):
+        with rm.PollenSpan(tracer=self.tracer, trace_name="handle_mobile_base_command"):
             if cmd.HasField("target_direction"):
-                with tracing_helper.PollenSpan(tracer=self.tracer, trace_name="mobile_base_target_direction"):
+                with rm.PollenSpan(tracer=self.tracer, trace_name="mobile_base_target_direction"):
                     self.mb_mobility_stub.SendDirection(cmd.target_direction)
             elif cmd.HasField("mobile_base_mode"):
-                with tracing_helper.PollenSpan(tracer=self.tracer, trace_name="mobile_base_mode"):
+                with rm.PollenSpan(tracer=self.tracer, trace_name="mobile_base_mode"):
                     self.mb_utility_stub.SetZuuuMode(cmd.mobile_base_mode)
             else:
                 self.logger.warning(f"Unknown mobile base command : {cmd}")
