@@ -14,7 +14,8 @@ from typing import Callable, Dict, List
 import gi
 
 # from queue import Queue
-import prometheus_client
+import prometheus_client as prc
+import reachy2_monitoring as rm
 from gst_signalling import GstSignallingProducer
 from gst_signalling.gst_abstract_role import GstSession
 from opentelemetry import trace
@@ -44,14 +45,24 @@ class GRPCWebRTCBridge:
 
     def __init__(self, args: argparse.Namespace) -> None:
         self.logger = logging.getLogger(__name__)
-        prometheus_client.start_http_server(10001)
+        prc.start_http_server(10001)
 
-        self.tracers: Dict[str, trace.Tracer | None] = {}
-
-        self.counter_all_commands: Dict[str, prometheus_client.metrics.Counter] = {}
-        self.counter_important_commands: Dict[str, prometheus_client.metrics.Counter] = {}
-        self.counter_dropped_commands: Dict[str, prometheus_client.metrics.Counter] = {}
-        # self.sum_time_important_commands: Dict[str, prometheus_client.metrics.Summary] = {}
+        NODE_NAME = "grpc-webrtc_bridge"
+        rm.configure_pyroscope(
+            NODE_NAME,
+            tags={
+                "server": "false",
+                "client": "true",
+            },
+        )
+        self.tracer = rm.tracer(NODE_NAME, grpc_type="client")
+        # self.sum_time_important_commands = prc.Summary('webrtcbridge_time_important_commands',
+        #                                               'Time spent during handle important commands')
+        self.counter_all_commands = prc.Counter("webrtcbridge_all_commands", "Amount of commands received")
+        self.counter_important_commands = prc.Counter(
+            "webrtcbridge_important_commands", "Amount of important commands received"
+        )
+        self.counter_dropped_commands = prc.Counter("webrtcbridge_dropped_commands", "Amount of commands dropped")
 
         self.producer = GstSignallingProducer(
             host=args.webrtc_signaling_host,
@@ -65,30 +76,7 @@ class GRPCWebRTCBridge:
         def on_new_session(session: GstSession) -> None:
             pc = session.pc
 
-            NODE_NAME = f"grpc-webrtc_bridge_{session.peer_id}"
-            configure_pyroscope(
-                NODE_NAME,
-                tags={
-                    "server": "false",
-                    "client": "true",
-                },
-            )
-            self.tracers[session.peer_id] = tracer(NODE_NAME, grpc_type="client")
-
-            self.counter_all_commands[session.peer_id] = prometheus_client.Counter(
-                f"webrtcbridge_all_commands_{session.peer_id.replace('-', '_')}", "Amount of commands received"
-            )
-            self.counter_important_commands[session.peer_id] = prometheus_client.Counter(
-                f"webrtcbridge_important_commands_{session.peer_id.replace('-', '_')}", "Amount of important commands received"
-            )
-            self.counter_dropped_commands[session.peer_id] = prometheus_client.Counter(
-                f"webrtcbridge_dropped_commands_{session.peer_id.replace('-', '_')}", "Amount of commands dropped"
-            )
-            # self.sum_time_important_commands = prometheus_client.Summary(
-            #       f"webrtcbridge_time_important_commands_{session.peer_id}",
-            #       "Time spent during handle important commands")
-
-            grpc_client = GRPCClient(args.grpc_host, args.grpc_port, self.tracers[session.peer_id])
+            grpc_client = GRPCClient(args.grpc_host, args.grpc_port, self.tracer)
             ########################################################################
             # NOTE used for testing code that instantiates multiple grpc servers
             # grpc_clients = []
@@ -133,9 +121,6 @@ class GRPCWebRTCBridge:
             self.logger.info(f"Session closed. peer id {session.peer_id}")
             thread_cancel = self._threads_running.pop(session.peer_id)
             thread_cancel.set()
-            self.counter_all_commands.pop(session.peer_id)
-            self.counter_dropped_commands.pop(session.peer_id)
-            self.counter_important_commands.pop(session.peer_id)
 
     def configure_grpc_client_threads(
         self,
@@ -176,7 +161,6 @@ class GRPCWebRTCBridge:
                     last_freq_counter,
                     last_freq_update,
                     thread_cancel,
-                    session.peer_id,
                 ),
                 daemon=True,
             ).start()
@@ -187,7 +171,6 @@ class GRPCWebRTCBridge:
                 grpc_client,
                 important_queue,
                 thread_cancel,
-                session.peer_id,
             ),
             daemon=True,
         ).start()
@@ -289,11 +272,9 @@ class GRPCWebRTCBridge:
     def on_error_commands_channel(self, channel: GstWebRTC.WebRTCDataChannel, error: GLib.Error) -> None:
         self.logger.error(f"Error on commands channel: {error.message}")
 
-    async def _send_joint_state(
-        self, channel: GstWebRTC.WebRTCDataChannel, request: Connect, grpc_client: GRPCClient, peer_id: str
-    ) -> None:
+    async def _send_joint_state(self, channel: GstWebRTC.WebRTCDataChannel, request: Connect, grpc_client: GRPCClient) -> None:
         # span_links = tracing_helper.span_links([tracing_helper.trace.get_current_span().get_span_context()])
-        # with self.tracers[peer_id].start_as_current_span(f"_send_joint_state_{peer_id.replace('-', '_')}",
+        # with self.tracer.start_as_current_span(f"_send_joint_state}",
         #                                        kind=tracing_helper.trace.SpanKind.INTERNAL,
         #                                        context=tracing_helper.otel_rootctx,
         #                                        links=span_links,
@@ -314,10 +295,10 @@ class GRPCWebRTCBridge:
         self.logger.debug("leaving streaming state")
 
     async def _send_joint_audit_status(
-        self, channel: GstWebRTC.WebRTCDataChannel, request: Connect, grpc_client: GRPCClient, peer_id: str
+        self, channel: GstWebRTC.WebRTCDataChannel, request: Connect, grpc_client: GRPCClient
     ) -> None:
         # span_links = tracing_helper.span_links([tracing_helper.trace.get_current_span().get_span_context()])
-        # with self.tracers[peer_id].start_as_current_span(f"_send_joint_audit_status_{peer_id.replace('-', '_')}",
+        # with self.tracer.start_as_current_span(f"_send_joint_audit_status}",
         #                                        kind=tracing_helper.trace.SpanKind.INTERNAL,
         #                                        context=tracing_helper.otel_rootctx,
         #                                        links=span_links,
@@ -359,7 +340,7 @@ class GRPCWebRTCBridge:
             data_channel_state.connect("on-close", self.on_close_state_channel)
             data_channel_state.connect("on-error", self.on_error_state_channel)
             asyncio.run_coroutine_threadsafe(
-                self._send_joint_state(data_channel_state, request, grpc_client, session.peer_id), self.producer._asyncloop
+                self._send_joint_state(data_channel_state, request, grpc_client), self.producer._asyncloop
             )
         else:
             self.logger.error("Failed to create data channel state")
@@ -370,7 +351,7 @@ class GRPCWebRTCBridge:
             audit_channel_state.connect("on-close", self.on_close_audit_channel)
             audit_channel_state.connect("on-error", self.on_error_audit_channel)
             asyncio.run_coroutine_threadsafe(
-                self._send_joint_audit_status(audit_channel_state, request, grpc_client, session.peer_id),
+                self._send_joint_audit_status(audit_channel_state, request, grpc_client),
                 self.producer._asyncloop,
             )
         else:
@@ -388,7 +369,6 @@ class GRPCWebRTCBridge:
                 grpc_client,
                 important_queue,
                 std_queue,
-                session.peer_id,
             )
             reachy_command_datachannel.connect("on-error", self.on_error_commands_channel)
         else:
@@ -458,7 +438,6 @@ class GRPCWebRTCBridge:
         grpc_client: GRPCClient,
         important_queue: Queue[AnyCommands],
         std_queue: Dict[str, deque[AnyCommand]],
-        peer_id: str,
     ) -> None:
         commands = AnyCommands()
         commands.ParseFromString(message.get_data())
@@ -467,7 +446,7 @@ class GRPCWebRTCBridge:
             self.logger.warning("No command or incorrect message received {message}")
             return
 
-        self.counter_all_commands[peer_id].inc(len(commands.commands))
+        self.counter_all_commands.inc(len(commands.commands))
         ###############################
         # TODO better, temporary message priority
         # HACK: split important and non-important commands to avoid
@@ -480,7 +459,7 @@ class GRPCWebRTCBridge:
         ###############################
         dropped_msg = 0
         important_msgs = self._process_important_commands(commands)
-        self.counter_important_commands[peer_id].inc(important_msgs)
+        self.counter_important_commands.inc(important_msgs)
 
         if not important_msgs:
             for cmd in commands.commands:
@@ -498,7 +477,7 @@ class GRPCWebRTCBridge:
             important_queue.put(commands_important)
             self.logger.debug(f"important: {commands_important}")
 
-        self.counter_dropped_commands[peer_id].inc(dropped_msg)
+        self.counter_dropped_commands.inc(dropped_msg)
 
     async def handle_disconnect_request(self) -> ServiceResponse:
         # TODO: implement me
@@ -511,7 +490,7 @@ class GRPCWebRTCBridge:
         message: AnyCommand,
         part_name: str,
         part_handler: Callable[[GRPCClient], None],
-        summary: prometheus_client.Summary,
+        summary: prc.Summary,
         last_freq_counter: Dict[str, int],
         last_freq_update: Dict[str, float],
     ) -> None:
@@ -539,10 +518,9 @@ class GRPCWebRTCBridge:
         last_freq_counter: Dict[str, int],
         last_freq_update: Dict[str, float],
         thread_cancel: Event,
-        peer_id: str,
     ) -> None:
-        sum_part = prometheus_client.Summary(
-            f"webrtcbridge_commands_time_{part_name}_{peer_id.replace('-', '_')}", f"Time spent during {part_name} commands"
+        sum_part = prc.Summary(
+            f"webrtcbridge_commands_time_{part_name}", f"Time spent during {part_name} commands"
         )
 
         while not thread_cancel.is_set():
@@ -556,10 +534,10 @@ class GRPCWebRTCBridge:
         self.logger.debug(f"Thread {part_name} closed")
 
     def handle_important_queue_routine(
-        self, grpc_client: GRPCClient, important_queue: Queue[AnyCommands], thread_cancel: Event, peer_id: str
+        self, grpc_client: GRPCClient, important_queue: Queue[AnyCommands], thread_cancel: Event
     ) -> None:
-        sum_important = prometheus_client.Summary(
-            f"webrtcbridge_commands_time_important_{peer_id.replace('-', '_')}", "Time spent during important commands"
+        sum_important = prc.Summary(
+            f"webrtcbridge_commands_time_important", "Time spent during important commands"
         )
 
         while not thread_cancel.is_set():
