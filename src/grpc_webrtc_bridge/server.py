@@ -18,7 +18,6 @@ import prometheus_client as prc
 import reachy2_monitoring as rm
 from gst_signalling import GstSignallingProducer
 from gst_signalling.gst_abstract_role import GstSession
-from opentelemetry import trace
 from reachy2_sdk_api.webrtc_bridge_pb2 import (
     AnyCommand,
     AnyCommands,
@@ -62,14 +61,14 @@ class GRPCWebRTCBridge:
         )
         self.counter_dropped_commands = prc.Counter("webrtcbridge_dropped_commands", "Amount of commands dropped")
 
-        self.sum_important = prc.Summary(f"webrtcbridge_commands_time_important", "Time spent during important commands")
+        self.sum_important = prc.Summary("webrtcbridge_commands_time_important", "Time spent during important commands")
         self.sum_part = {
-            "neck": prc.Summary(f"webrtcbridge_commands_time_neck", f"Time spent during neck commands"),
-            "r_arm": prc.Summary(f"webrtcbridge_commands_time_r_arm", f"Time spent during r_arm commands"),
-            "l_arm": prc.Summary(f"webrtcbridge_commands_time_l_arm", f"Time spent during l_arm commands"),
-            "r_hand": prc.Summary(f"webrtcbridge_commands_time_r_hand", f"Time spent during r_hand commands"),
-            "l_hand": prc.Summary(f"webrtcbridge_commands_time_l_hand", f"Time spent during l_hand commands"),
-            "mobile_base": prc.Summary(f"webrtcbridge_commands_time_mobile_base", f"Time spent during mobile_base commands"),
+            "neck": prc.Summary("webrtcbridge_commands_time_neck", "Time spent during neck commands"),
+            "r_arm": prc.Summary("webrtcbridge_commands_time_r_arm", "Time spent during r_arm commands"),
+            "l_arm": prc.Summary("webrtcbridge_commands_time_l_arm", "Time spent during l_arm commands"),
+            "r_hand": prc.Summary("webrtcbridge_commands_time_r_hand", "Time spent during r_hand commands"),
+            "l_hand": prc.Summary("webrtcbridge_commands_time_l_hand", "Time spent during l_hand commands"),
+            "mobile_base": prc.Summary("webrtcbridge_commands_time_mobile_base", "Time spent during mobile_base commands"),
         }
 
         self.important_queue: Queue[AnyCommands] = Queue()
