@@ -88,6 +88,9 @@ class GRPCWebRTCBridge:
         )
 
         self._threads_running: Dict[str, Event] = {}
+        self._gloop = GLib.MainLoop()
+        self._thread_bus_calls = Thread(target=self._handle_bus_calls, daemon=True)
+        self._thread_bus_calls.start()
 
         @self.producer.on("new_session")  # type: ignore[misc]
         def on_new_session(session: GstSession) -> None:
@@ -228,6 +231,8 @@ class GRPCWebRTCBridge:
 
     async def close(self) -> None:
         self.logger.info("Close bridge")
+        self._gloop.quit()
+        self._thread_bus_calls.join()
         await self.producer.close()
 
     # Handle service request
@@ -559,6 +564,42 @@ class GRPCWebRTCBridge:
             except Exception as e:
                 self.logger.error(f"Error while handling important commands: {e}")
         self.logger.debug("Thread important queues closed")
+
+    def bus_message_cb(self, bus: Gst.Bus, msg: Gst.Message, loop) -> bool:  # type: ignore[no-untyped-def]
+        t = msg.type
+        if t == Gst.MessageType.EOS:
+            self.logger.error("End-of-stream")
+            return False
+        elif t == Gst.MessageType.ERROR:
+            err, debug = msg.parse_error()
+            self.logger.error("Error: %s: %s" % (err, debug))
+            loop.quit()
+            return False
+        elif t == Gst.MessageType.STATE_CHANGED:
+            if isinstance(msg.src, Gst.Pipeline):
+                old_state, new_state, pending_state = msg.parse_state_changed()
+                self.logger.info(("Pipeline state changed from %s to %s." % (old_state.value_nick, new_state.value_nick)))
+                if old_state.value_nick == "paused" and new_state.value_nick == "ready":
+                    self.logger.info("stopping bus message loop")
+                    loop.quit()
+                    return False
+        elif t == Gst.MessageType.LATENCY:
+            if self.producer._pipeline:
+                try:
+                    self.producer._pipeline.recalculate_latency()
+                except Exception as e:
+                    self.logger.warning("failed to recalculate warning, exception: %s" % str(e))
+        return True
+
+    def _handle_bus_calls(self) -> None:
+        self.logger.debug("Starting bus call loop")
+        self.producer._pipeline.set_property("auto-flush-bus", True)
+        bus = self.producer._pipeline.get_bus()
+        bus.add_watch(GLib.PRIORITY_DEFAULT, self.bus_message_cb, self._gloop)
+        self._gloop.run()
+        bus.remove_watch()
+
+        self.logger.debug("Stopping bus call loop")
 
 
 def main() -> int:
