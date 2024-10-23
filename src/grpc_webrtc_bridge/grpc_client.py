@@ -134,7 +134,7 @@ class GRPCClient:
         with rm.PollenSpan(tracer=self.tracer, trace_name="handle_arm_command"):
             if cmd.HasField("arm_cartesian_goal"):
                 with rm.PollenSpan(tracer=self.tracer, trace_name="SendArmCartesianGoal"):
-                    self.arm_stub.SendArmCartesianGoal(cmd.arm_cartesian_goal)
+                    self.arm_stub.SendArmCartesianGoal(cmd.arm_cartesian_goal, timeout=5)
             elif cmd.HasField("turn_on"):
                 with rm.PollenSpan(tracer=self.tracer, trace_name="arm_turn_on"):
                     self.arm_stub.TurnOn(cmd.turn_on)
@@ -154,7 +154,7 @@ class GRPCClient:
         with rm.PollenSpan(tracer=self.tracer, trace_name="handle_hand_command"):
             if cmd.HasField("hand_goal"):
                 with rm.PollenSpan(tracer=self.tracer, trace_name="hand_goal"):
-                    self.hand_stub.SetHandPosition(cmd.hand_goal)
+                    self.hand_stub.SetHandPosition(cmd.hand_goal, timeout=5)
             elif cmd.HasField("turn_on"):
                 with rm.PollenSpan(tracer=self.tracer, trace_name="hand_turn_on"):
                     self.hand_stub.TurnOn(cmd.turn_on)
@@ -168,7 +168,7 @@ class GRPCClient:
         with rm.PollenSpan(tracer=self.tracer, trace_name="handle_neck_command"):
             if cmd.HasField("neck_goal"):
                 with rm.PollenSpan(tracer=self.tracer, trace_name="neck_goal"):
-                    self.head_stub.SendNeckJointGoal(cmd.neck_goal)
+                    self.head_stub.SendNeckJointGoal(cmd.neck_goal, timeout=5)
             elif cmd.HasField("turn_on"):
                 with rm.PollenSpan(tracer=self.tracer, trace_name="neck_turn_on"):
                     self.head_stub.TurnOn(cmd.turn_on)
@@ -188,7 +188,7 @@ class GRPCClient:
         with rm.PollenSpan(tracer=self.tracer, trace_name="handle_mobile_base_command"):
             if cmd.HasField("target_direction"):
                 with rm.PollenSpan(tracer=self.tracer, trace_name="mobile_base_target_direction"):
-                    self.mb_mobility_stub.SendDirection(cmd.target_direction)
+                    self.mb_mobility_stub.SendDirection(cmd.target_direction, timeout=10)
             elif cmd.HasField("mobile_base_mode"):
                 with rm.PollenSpan(tracer=self.tracer, trace_name="mobile_base_mode"):
                     self.mb_utility_stub.SetZuuuMode(cmd.mobile_base_mode)
