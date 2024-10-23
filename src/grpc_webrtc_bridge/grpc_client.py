@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from typing import Any, AsyncGenerator
 
@@ -39,7 +40,7 @@ class GRPCClient:
         self.synchro_channel = grpc.insecure_channel(f"{host}:{port}")
         self.async_channel = grpc.aio.insecure_channel(f"{host}:{port}")
 
-        self.reachy_stub_synchro = reachy_pb2_grpc.ReachyServiceStub(self.synchro_channel)
+        # self.reachy_stub_synchro = reachy_pb2_grpc.ReachyServiceStub(self.synchro_channel)
         self.reachy_stub_async = reachy_pb2_grpc.ReachyServiceStub(self.async_channel)
 
         self.arm_stub = arm_pb2_grpc.ArmServiceStub(self.synchro_channel)
@@ -48,9 +49,28 @@ class GRPCClient:
         self.mb_utility_stub = mobile_base_utility_pb2_grpc.MobileBaseUtilityServiceStub(self.synchro_channel)
         self.mb_mobility_stub = mobile_base_mobility_pb2_grpc.MobileBaseMobilityServiceStub(self.synchro_channel)
 
+        self._event_streams = asyncio.Event()
+
+    def __del__(self) -> None:
+        self.logger.debug("Deleting GRPC Client")
+
+    async def close(self) -> None:
+        self.logger.debug("Closing GRPC Client")
+
+        self._event_streams.set()
+        self.synchro_channel.close()
+        await self.async_channel.close()
+
+        self.logger.debug("GRPC Client closed")
+
     # Got Reachy(s) description
-    def get_reachy(self) -> reachy_pb2.Reachy:
-        return self.reachy_stub_synchro.GetReachy(Empty())
+    async def get_reachy(self) -> reachy_pb2.Reachy:
+        # return self.reachy_stub_synchro.GetReachy(Empty())
+        self.logger.info("Getting Reachy")
+        try:
+            return await self.reachy_stub_async.GetReachy(Empty(), timeout=20, wait_for_ready=True)
+        except grpc.RpcError as e:
+            self.logger.error(f"Error while getting Reachy: {e}")
 
     # Retrieve Reachy entire state
     async def get_reachy_state(
@@ -58,13 +78,19 @@ class GRPCClient:
         reachy_id: reachy_pb2.ReachyId,
         publish_frequency: float,
     ) -> AsyncGenerator[reachy_pb2.ReachyState, None]:
-        stream_req = reachy_pb2.ReachyStreamStateRequest(
+        stream_req_state = reachy_pb2.ReachyStreamStateRequest(
             id=reachy_id,
             publish_frequency=publish_frequency,
         )
 
-        async for state in self.reachy_stub_async.StreamReachyState(stream_req):
-            yield state
+        try:
+            async for state in self.reachy_stub_async.StreamReachyState(stream_req_state):
+                if self._event_streams.is_set():
+                    self.logger.debug("Stream state interrupted")
+                    break
+                yield state
+        except grpc.RpcError as e:
+            self.logger.error(f"Error while streaming state: {e}")
 
     # Retrieve Reachy entire audit status
     async def get_reachy_audit_status(
@@ -72,13 +98,18 @@ class GRPCClient:
         reachy_id: reachy_pb2.ReachyId,
         publish_frequency: float,
     ) -> AsyncGenerator[reachy_pb2.ReachyStatus, None]:
-        stream_req = reachy_pb2.ReachyStreamAuditRequest(
+        stream_req_audit = reachy_pb2.ReachyStreamAuditRequest(
             id=reachy_id,
             publish_frequency=publish_frequency,
         )
-
-        async for state in self.reachy_stub_async.StreamAudit(stream_req):
-            yield state
+        try:
+            async for state in self.reachy_stub_async.StreamAudit(stream_req_audit):
+                if self._event_streams.is_set():
+                    self.logger.debug("Stream state audit interrupted")
+                    break
+                yield state
+        except grpc.RpcError as e:
+            self.logger.error(f"Error while streaming audit state: {e}")
 
     # Send Commands (torque and cartesian targets)
     def handle_commands(
@@ -103,7 +134,7 @@ class GRPCClient:
         with rm.PollenSpan(tracer=self.tracer, trace_name="handle_arm_command"):
             if cmd.HasField("arm_cartesian_goal"):
                 with rm.PollenSpan(tracer=self.tracer, trace_name="SendArmCartesianGoal"):
-                    self.arm_stub.SendArmCartesianGoal(cmd.arm_cartesian_goal)
+                    self.arm_stub.SendArmCartesianGoal(cmd.arm_cartesian_goal, timeout=5)
             elif cmd.HasField("turn_on"):
                 with rm.PollenSpan(tracer=self.tracer, trace_name="arm_turn_on"):
                     self.arm_stub.TurnOn(cmd.turn_on)
@@ -123,7 +154,7 @@ class GRPCClient:
         with rm.PollenSpan(tracer=self.tracer, trace_name="handle_hand_command"):
             if cmd.HasField("hand_goal"):
                 with rm.PollenSpan(tracer=self.tracer, trace_name="hand_goal"):
-                    self.hand_stub.SetHandPosition(cmd.hand_goal)
+                    self.hand_stub.SetHandPosition(cmd.hand_goal, timeout=5)
             elif cmd.HasField("turn_on"):
                 with rm.PollenSpan(tracer=self.tracer, trace_name="hand_turn_on"):
                     self.hand_stub.TurnOn(cmd.turn_on)
@@ -137,7 +168,7 @@ class GRPCClient:
         with rm.PollenSpan(tracer=self.tracer, trace_name="handle_neck_command"):
             if cmd.HasField("neck_goal"):
                 with rm.PollenSpan(tracer=self.tracer, trace_name="neck_goal"):
-                    self.head_stub.SendNeckJointGoal(cmd.neck_goal)
+                    self.head_stub.SendNeckJointGoal(cmd.neck_goal, timeout=5)
             elif cmd.HasField("turn_on"):
                 with rm.PollenSpan(tracer=self.tracer, trace_name="neck_turn_on"):
                     self.head_stub.TurnOn(cmd.turn_on)
@@ -157,7 +188,7 @@ class GRPCClient:
         with rm.PollenSpan(tracer=self.tracer, trace_name="handle_mobile_base_command"):
             if cmd.HasField("target_direction"):
                 with rm.PollenSpan(tracer=self.tracer, trace_name="mobile_base_target_direction"):
-                    self.mb_mobility_stub.SendDirection(cmd.target_direction)
+                    self.mb_mobility_stub.SendDirection(cmd.target_direction, timeout=10)
             elif cmd.HasField("mobile_base_mode"):
                 with rm.PollenSpan(tracer=self.tracer, trace_name="mobile_base_mode"):
                     self.mb_utility_stub.SetZuuuMode(cmd.mobile_base_mode)
