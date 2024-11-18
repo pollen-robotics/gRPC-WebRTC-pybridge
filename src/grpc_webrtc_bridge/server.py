@@ -159,6 +159,7 @@ class GRPCWebRTCBridge:
         }
 
         last_freq_counter = {"neck": 0, "r_arm": 0, "l_arm": 0, "r_hand": 0, "l_hand": 0, "mobile_base": 0}
+        self.last_drop_counter = {"neck": 0, "r_arm": 0, "l_arm": 0, "r_hand": 0, "l_hand": 0, "mobile_base": 0}
         last_freq_update = {
             "neck": time.time(),
             "r_arm": time.time(),
@@ -486,13 +487,25 @@ class GRPCWebRTCBridge:
         if not important_msgs:
             for cmd in commands.commands:
                 if cmd.HasField("arm_command"):
-                    dropped_msg += self._insert_or_drop(std_queue, cmd.arm_command.arm_cartesian_goal.id.name, cmd.arm_command)
+                    dropped = self._insert_or_drop(std_queue, cmd.arm_command.arm_cartesian_goal.id.name, cmd.arm_command)
+                    if dropped:
+                        self.last_drop_counter[cmd.arm_command.arm_cartesian_goal.id.name] += 1
+                    dropped_msg += dropped
                 elif cmd.HasField("hand_command"):
-                    dropped_msg += self._insert_or_drop(std_queue, cmd.hand_command.hand_goal.id.name, cmd.hand_command)
+                    dropped = self._insert_or_drop(std_queue, cmd.hand_command.hand_goal.id.name, cmd.hand_command)
+                    if dropped:
+                        self.last_drop_counter[cmd.hand_command.hand_goal.id.name] += 1
+                    dropped_msg += dropped
                 elif cmd.HasField("neck_command"):
-                    dropped_msg += self._insert_or_drop(std_queue, "neck", cmd.neck_command)
+                    dropped = self._insert_or_drop(std_queue, "neck", cmd.neck_command)
+                    if dropped:
+                        self.last_drop_counter["neck"] += 1
+                    dropped_msg += dropped
                 elif cmd.HasField("mobile_base_command"):
-                    dropped_msg += self._insert_or_drop(std_queue, "mobile_base", cmd.mobile_base_command)
+                    dropped = self._insert_or_drop(std_queue, "mobile_base", cmd.mobile_base_command)
+                    if dropped:
+                        self.last_drop_counter["mobile_base"] += 1
+                    dropped_msg += dropped
                 else:
                     self.logger.warning(f"Unknown command: {cmd}")
         else:
@@ -524,10 +537,11 @@ class GRPCWebRTCBridge:
         now = time.time()
         if now - last_freq_update[part_name] > 1:
             current_freq_rate = int(last_freq_counter[part_name] / (now - last_freq_update[part_name]))
-
-            self.logger.info(f"Freq {part_name} {current_freq_rate} Hz")
+            current_drop_rate = int(self.last_drop_counter[part_name] / (now - last_freq_update[part_name]))
+            self.logger.info(f"Freq {part_name} {current_freq_rate} Hz\tDropped {current_drop_rate} Hz")
 
             last_freq_counter[part_name] = 0
+            self.last_drop_counter[part_name] = 0
             last_freq_update[part_name] = now
 
     ####################
@@ -544,7 +558,14 @@ class GRPCWebRTCBridge:
         while not thread_cancel.is_set():
             try:
                 msg = std_queue.pop()
-                self.msg_handling(msg, part_name, part_handler, self.sum_part[part_name], last_freq_counter, last_freq_update)
+                self.msg_handling(
+                    msg,
+                    part_name,
+                    part_handler,
+                    self.sum_part[part_name],
+                    last_freq_counter,
+                    last_freq_update,
+                )
             except IndexError:
                 time.sleep(0.001)
             except Exception as e:
