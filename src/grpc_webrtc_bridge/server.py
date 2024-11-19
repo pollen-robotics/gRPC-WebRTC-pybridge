@@ -435,6 +435,8 @@ class GRPCWebRTCBridge:
             elem = std_queue[queue_name]
             dropped = bool(elem)  # True means len(element) > 0
             elem.append(command)  # drop current element if any (maxlen=1)
+            if dropped:
+                self.last_drop_counter[queue_name] += 1
         except KeyError:
             self.logger.warning(f"Dropping invalid command : {queue_name}")
         return dropped
@@ -488,23 +490,15 @@ class GRPCWebRTCBridge:
             for cmd in commands.commands:
                 if cmd.HasField("arm_command"):
                     dropped = self._insert_or_drop(std_queue, cmd.arm_command.arm_cartesian_goal.id.name, cmd.arm_command)
-                    if dropped:
-                        self.last_drop_counter[cmd.arm_command.arm_cartesian_goal.id.name] += 1
                     dropped_msg += dropped
                 elif cmd.HasField("hand_command"):
                     dropped = self._insert_or_drop(std_queue, cmd.hand_command.hand_goal.id.name, cmd.hand_command)
-                    if dropped:
-                        self.last_drop_counter[cmd.hand_command.hand_goal.id.name] += 1
                     dropped_msg += dropped
                 elif cmd.HasField("neck_command"):
                     dropped = self._insert_or_drop(std_queue, "neck", cmd.neck_command)
-                    if dropped:
-                        self.last_drop_counter["neck"] += 1
                     dropped_msg += dropped
                 elif cmd.HasField("mobile_base_command"):
                     dropped = self._insert_or_drop(std_queue, "mobile_base", cmd.mobile_base_command)
-                    if dropped:
-                        self.last_drop_counter["mobile_base"] += 1
                     dropped_msg += dropped
                 else:
                     self.logger.warning(f"Unknown command: {cmd}")
