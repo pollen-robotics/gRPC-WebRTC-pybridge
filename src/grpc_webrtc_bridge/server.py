@@ -489,17 +489,13 @@ class GRPCWebRTCBridge:
         if not important_msgs:
             for cmd in commands.commands:
                 if cmd.HasField("arm_command"):
-                    dropped = self._insert_or_drop(std_queue, cmd.arm_command.arm_cartesian_goal.id.name, cmd.arm_command)
-                    dropped_msg += dropped
+                    dropped_msg += self._insert_or_drop(std_queue, cmd.arm_command.arm_cartesian_goal.id.name, cmd.arm_command)                    
                 elif cmd.HasField("hand_command"):
-                    dropped = self._insert_or_drop(std_queue, cmd.hand_command.hand_goal.id.name, cmd.hand_command)
-                    dropped_msg += dropped
+                    dropped_msg = self._insert_or_drop(std_queue, cmd.hand_command.hand_goal.id.name, cmd.hand_command)
                 elif cmd.HasField("neck_command"):
-                    dropped = self._insert_or_drop(std_queue, "neck", cmd.neck_command)
-                    dropped_msg += dropped
+                    dropped_msg = self._insert_or_drop(std_queue, "neck", cmd.neck_command)
                 elif cmd.HasField("mobile_base_command"):
-                    dropped = self._insert_or_drop(std_queue, "mobile_base", cmd.mobile_base_command)
-                    dropped_msg += dropped
+                    dropped_msg = self._insert_or_drop(std_queue, "mobile_base", cmd.mobile_base_command)
                 else:
                     self.logger.warning(f"Unknown command: {cmd}")
         else:
