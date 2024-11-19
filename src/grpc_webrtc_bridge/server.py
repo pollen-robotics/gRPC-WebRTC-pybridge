@@ -489,7 +489,7 @@ class GRPCWebRTCBridge:
         if not important_msgs:
             for cmd in commands.commands:
                 if cmd.HasField("arm_command"):
-                    dropped_msg += self._insert_or_drop(std_queue, cmd.arm_command.arm_cartesian_goal.id.name, cmd.arm_command)                    
+                    dropped_msg += self._insert_or_drop(std_queue, cmd.arm_command.arm_cartesian_goal.id.name, cmd.arm_command)
                 elif cmd.HasField("hand_command"):
                     dropped_msg = self._insert_or_drop(std_queue, cmd.hand_command.hand_goal.id.name, cmd.hand_command)
                 elif cmd.HasField("neck_command"):
