@@ -65,9 +65,9 @@ class GRPCClient:
 
     # Got Reachy(s) description
     async def get_reachy(self) -> reachy_pb2.Reachy:
-        # return self.reachy_stub_synchro.GetReachy(Empty())
-        self.logger.info("Getting Reachy")
+        self.logger.info("Getting Reachy ...")
         try:
+            # this is the first call to the grpc server. Core may be still booting up
             return await self.reachy_stub_async.GetReachy(Empty(), timeout=20, wait_for_ready=True)
         except grpc.RpcError as e:
             self.logger.error(f"Error while getting Reachy: {e}")
