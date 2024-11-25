@@ -22,10 +22,22 @@ from reachy2_sdk_api.webrtc_bridge_pb2 import (
     ServiceRequest,
     ServiceResponse,
 )
+from reachy2_sdk import ReachySDK
+from reachy2_sdk.parts.joints_based_part import JointsBasedPart
+
 
 gi.require_version("Gst", "1.0")
 
 from gi.repository import GLib, Gst, GstWebRTC  # noqa : E402
+
+# These are integer values between 0 and 100
+TORQUE_LIMIT=5
+SPEED_LIMIT=100
+
+RADIUS = 0.2  # Circle radius
+FIXED_X = 0.4  # Fixed x-coordinate
+CENTER_Y, CENTER_Z = 0, 0.1  # Center of the circle in y-z plane
+Y_OFFSET = 0.2
 
 
 class TeleopApp:
@@ -50,6 +62,8 @@ class TeleopApp:
 
             webrtcbin = session.pc
             webrtcbin.connect("on-data-channel", self._on_data_channel)
+            
+
 
     async def run_consumer(self) -> None:
         await self.consumer.connect()
@@ -144,56 +158,53 @@ class TeleopApp:
             duration=FloatValue(value=1.0),
         )
 
-    def turn_on_arms(self, channel: GstWebRTC.WebRTCDataChannel) -> None:
-        commands = AnyCommands(
-            commands=[
-                AnyCommand(  # right arm
-                    arm_command=ArmCommand(turn_on=self.connection.reachy.r_arm.part_id),
-                ),
-                AnyCommand(  # left arm
-                    arm_command=ArmCommand(turn_on=self.connection.reachy.l_arm.part_id),
-                ),
-            ],
-        )
+    # def turn_on_arms(self, channel: GstWebRTC.WebRTCDataChannel) -> None:
+    #     commands = AnyCommands(
+    #         commands=[
+    #             AnyCommand(  # right arm
+    #                 arm_command=ArmCommand(turn_on=self.connection.reachy.r_arm.part_id),
+    #             ),
+    #             AnyCommand(  # left arm
+    #                 arm_command=ArmCommand(turn_on=self.connection.reachy.l_arm.part_id),
+    #             ),
+    #         ],
+    #     )
 
-        byte_data = commands.SerializeToString()
-        gbyte_data = GLib.Bytes.new(byte_data)
-        channel.send_data(gbyte_data)
+    #     byte_data = commands.SerializeToString()
+    #     gbyte_data = GLib.Bytes.new(byte_data)
+    #     channel.send_data(gbyte_data)
 
     def ensure_send_command(self, channel: GstWebRTC.WebRTCDataChannel, freq: float = 100) -> None:
         async def send_command() -> None:
-            radius = 0.2  # Circle radius
-            fixed_x = 0.4  # Fixed x-coordinate
-            center_y, center_z = 0, 0.1  # Center of the circle in y-z plane
             num_steps = 200  # Number of steps to complete the circle
             frequency = 100  # Update frequency in Hz
             step = 0  # Current step
             circle_period = 3
             t0 = time.time()
             while True:
-                angle = 2 * np.pi * (step / num_steps)
+                # angle = 2 * np.pi * (step / num_steps)
                 angle = 2 * np.pi * (time.time() - t0) / circle_period
                 self._logger.debug(f"command angle {angle}")
                 step += 1
                 if step >= num_steps:
                     step = 0
                 # Calculate y and z coordinates
-                y = center_y + radius * np.cos(angle)
-                z = center_z + radius * np.sin(angle)
+                y = CENTER_Y + RADIUS * np.cos(angle)
+                z = CENTER_Z + RADIUS * np.sin(angle)
 
                 commands = AnyCommands(
                     commands=[
                         AnyCommand(  # right arm
                             arm_command=ArmCommand(
                                 arm_cartesian_goal=self.make_arm_cartesian_goal(
-                                    fixed_x, y - 0.2, z, partid=self.connection.reachy.r_arm.part_id
+                                    FIXED_X, y - Y_OFFSET, z, partid=self.connection.reachy.r_arm.part_id
                                 )
                             ),
                         ),
                         AnyCommand(  # left arm
                             arm_command=ArmCommand(
                                 arm_cartesian_goal=self.make_arm_cartesian_goal(
-                                    fixed_x, y + 0.2, z, partid=self.connection.reachy.l_arm.part_id
+                                    FIXED_X, y + Y_OFFSET, z, partid=self.connection.reachy.l_arm.part_id
                                 )
                             ),
                         ),
@@ -207,9 +218,66 @@ class TeleopApp:
 
                 await asyncio.sleep(1 / frequency)
 
-        self.turn_on_arms(channel)
+        # self.turn_on_arms(channel)
         asyncio.run_coroutine_threadsafe(send_command(), self.consumer._asyncloop)
 
+def build_pose_matrix(x: float, y: float, z: float) -> npt.NDArray[np.float64]:
+    """Build a 4x4 pose matrix for a given position in 3D space, with the effector at a fixed orientation.
+
+    Args:
+        x: The x-coordinate of the position.
+        y: The y-coordinate of the position.
+        z: The z-coordinate of the position.
+
+    Returns:
+        A 4x4 NumPy array representing the pose matrix.
+    """
+    # The effector is always at the same orientation in the world frame
+    return np.array(
+        [
+            [0, 0, 1, x], # it should be -1 to point forward, but doing this creates more unreachable poses that are good for debug
+            [0, 1, 0, y],
+            [1, 0, 0, z],
+            [0, 0, 0, 1],
+        ]
+    )
+
+def set_speed_and_torque_limits(reachy, torque_limit=100, speed_limit=25) -> None:
+    """Set back speed and torque limits of all parts to given value."""
+    if not reachy.info:
+        reachy._logger.warning("Reachy is not connected!")
+        return
+
+    for part in reachy.info._enabled_parts.values():
+        if issubclass(type(part), JointsBasedPart):
+            part.set_speed_limits(speed_limit)
+            part.set_torque_limits(torque_limit)
+    time.sleep(0.5)
+
+def smooth_goto_init() -> None:
+    reachy = ReachySDK(host="localhost")
+
+    if not reachy.is_connected:
+        exit("Reachy is not connected.")
+
+    print("Turning on Reachy")
+    reachy.turn_on()
+    
+    set_speed_and_torque_limits(reachy, torque_limit=TORQUE_LIMIT, speed_limit=SPEED_LIMIT)
+    time.sleep(0.2)
+    
+    angle = 0.0
+    # Calculate y and z coordinates
+    y = CENTER_Y + RADIUS * np.cos(angle)
+    z = CENTER_Z + RADIUS * np.sin(angle)
+
+    r_target_pose = build_pose_matrix(FIXED_X, y - Y_OFFSET, z)
+    l_target_pose = build_pose_matrix(FIXED_X, y + Y_OFFSET, z)
+    r_ik = reachy.r_arm.inverse_kinematics(r_target_pose)
+    l_ik = reachy.l_arm.inverse_kinematics(l_target_pose)
+    reachy.r_arm.goto(r_ik, duration=2.0, degrees=True)
+    reachy.l_arm.goto(l_ik, duration=2.0, degrees=True, wait=True)
+    
 
 def main(args: argparse.Namespace) -> int:  # noqa: C901
     teleop = TeleopApp(args)
@@ -263,4 +331,7 @@ if __name__ == "__main__":
     else:
         logging.basicConfig(level=logging.INFO)
 
-    sys.exit(main(args))
+    smooth_goto_init()
+    
+    
+    # sys.exit(main(args))
