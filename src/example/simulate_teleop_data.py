@@ -181,7 +181,7 @@ class TeleopApp:
     def ensure_send_command(self, channel: GstWebRTC.WebRTCDataChannel, freq: float = 100) -> None:
         async def send_command() -> None:
             num_steps = 200  # Number of steps to complete the circle
-            frequency = 100  # Update frequency in Hz
+            frequency = 120  # Update frequency in Hz
             step = 0  # Current step
             circle_period = 3
             t0 = time.time()

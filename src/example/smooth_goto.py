@@ -75,24 +75,37 @@ def smooth_goto_init(args) -> None:
     set_speed_and_torque_limits(reachy, torque_limit=TORQUE_LIMIT, speed_limit=SPEED_LIMIT)
     time.sleep(0.2)
     angle = INIT_ANGLE
-    # Calculate y and z coordinates
-    y = CENTER_Y + RADIUS * np.cos(angle)
-    z = CENTER_Z + RADIUS * np.sin(angle)
+    i = 0
+    while True :
+        # Calculate y and z coordinates
+        angle = INIT_ANGLE + 2*np.pi/20*1
+        y = CENTER_Y + RADIUS * np.cos(angle)
+        z = CENTER_Z + RADIUS * np.sin(angle)
 
-    r_target_pose = build_pose_matrix(FIXED_X, y - Y_OFFSET, z)
-    l_target_pose = build_pose_matrix(FIXED_X, y + Y_OFFSET, z)
-    print(f"Moving to initial pose: {r_target_pose} and {l_target_pose}")
-    try :
-        r_ik = reachy.r_arm.inverse_kinematics(r_target_pose)
-        l_ik = reachy.l_arm.inverse_kinematics(l_target_pose)
-    except Exception as e:
-        print(e)
-        print("init pose is not reachable, not moving")
-        raise e
-    reachy.r_arm.goto(r_ik, duration=3.0, degrees=True)
-    reachy.l_arm.goto(l_ik, duration=3.0, degrees=True, wait=True)
+        r_target_pose = build_pose_matrix(FIXED_X, y - Y_OFFSET, z)
+        l_target_pose = build_pose_matrix(FIXED_X, y + Y_OFFSET, z)
+
+        print(f"Moving to initial pose: {r_target_pose} and {l_target_pose}")
+        try :
+            r_ik = reachy.r_arm.inverse_kinematics(r_target_pose)
+            l_ik = reachy.l_arm.inverse_kinematics(l_target_pose)
+        except Exception as e:
+            print(e)
+            print("init pose is not reachable, not moving")
+            # raise e
+            continue
+        reachy.r_arm.goto(r_ik, duration=3.0, degrees=True)
+        reachy.l_arm.goto(l_ik, duration=3.0, degrees=True, wait=True)
     
+def emergency_stop(args) -> None:
+    print(f"Connecting to Reachy at {args.webrtc_signalling_host}")
+    reachy = ReachySDK(host=args.webrtc_signalling_host)
 
+    if not reachy.is_connected:
+        exit("Reachy is not connected.")
+
+    print("Turning off Reachy")
+    reachy.turn_off_smoothly()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -131,5 +144,11 @@ if __name__ == "__main__":
     else:
         logging.basicConfig(level=logging.INFO)
 
-    smooth_goto_init(args)
+    try :
+        smooth_goto_init(args)
+    except Exception as e:
+        print(e)
+        raise e
+    finally :
+        emergency_stop(args)
     
