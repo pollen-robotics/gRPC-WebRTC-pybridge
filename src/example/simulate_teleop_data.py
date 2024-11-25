@@ -32,7 +32,7 @@ gi.require_version("Gst", "1.0")
 from gi.repository import GLib, Gst, GstWebRTC  # noqa : E402
 
 # These are integer values between 0 and 100
-TORQUE_LIMIT=80
+TORQUE_LIMIT=100
 SPEED_LIMIT=50
 
 RADIUS = 0.2  # Circle radius
@@ -149,7 +149,7 @@ class TeleopApp:
     def make_arm_cartesian_goal(self, x: float, y: float, z: float, partid: int = 1) -> ArmCartesianGoal:
         goal = np.array(
             [
-                [0, 0, 1, x],
+                [0, 0, -1, x],
                 [0, 1, 0, y],
                 [1, 0, 0, z],
                 [0, 0, 0, 1],
@@ -287,7 +287,16 @@ def smooth_goto_init(args) -> None:
     reachy.r_arm.goto(r_ik, duration=3.0, degrees=True)
     reachy.l_arm.goto(l_ik, duration=3.0, degrees=True, wait=True)
     
+def emergency_stop(args) -> None:
+    print(f"Connecting to Reachy at {args.webrtc_signalling_host}")
+    reachy = ReachySDK(host=args.webrtc_signalling_host)
 
+    if not reachy.is_connected:
+        exit("Reachy is not connected.")
+
+    print("Turning off Reachy")
+    reachy.turn_off_smoothly()
+    
 def main(args: argparse.Namespace) -> int:  # noqa: C901
     teleop = TeleopApp(args)
 
@@ -340,6 +349,12 @@ if __name__ == "__main__":
     else:
         logging.basicConfig(level=logging.INFO)
 
-    smooth_goto_init(args)
+    try :
+        smooth_goto_init(args)
+        main(args) 
+    except Exception as e:
+        print(e)
+        raise e
+    finally :
+        emergency_stop(args)
     
-    sys.exit(main(args))
