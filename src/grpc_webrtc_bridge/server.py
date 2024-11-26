@@ -71,6 +71,9 @@ class GRPCWebRTCBridge:
             "mobile_base": prc.Summary("webrtcbridge_commands_time_mobile_base", "Time spent during mobile_base commands"),
         }
 
+        self.consecutive_drops = {"r_arm":0, "l_arm":0}
+        self.t = time.time()
+        
         self.important_queue: Queue[AnyCommands] = Queue()
         self.std_queue: Dict[str, deque[AnyCommand]] = {
             "neck": deque(maxlen=1),
@@ -181,6 +184,7 @@ class GRPCWebRTCBridge:
                     last_freq_counter,
                     last_freq_update,
                     thread_cancel,
+                    session.session_id,
                 ),
                 daemon=True,
             ).start()
@@ -235,6 +239,9 @@ class GRPCWebRTCBridge:
         self._thread_bus_calls.join()
         await self.producer.close()
 
+    def abort_session(self, session_id: str) -> None:
+        asyncio.run_coroutine_threadsafe(self.producer.close_session(session_id), self.producer._asyncloop)
+
     # Handle service request
     async def handle_service_request(
         self,
@@ -248,7 +255,13 @@ class GRPCWebRTCBridge:
         self.logger.debug(f"Received service request message: {request}")
 
         if request.HasField("get_reachy"):
-            resp = await self.handle_get_reachy_request(grpc_client)
+            try:
+                resp = await self.handle_get_reachy_request(grpc_client)
+            except Exception as e:
+                self.logger.error(f"Error while handling get_reachy request: {e}. Aborting session")
+                await grpc_client.close()
+                self.abort_session(session.session_id)
+
             byte_data = resp.SerializeToString()
             gbyte_data = GLib.Bytes.new(byte_data)
             data_channel.send_data(gbyte_data)
@@ -412,18 +425,21 @@ class GRPCWebRTCBridge:
                 important_msgs = GRPCWebRTCBridge._process_important_fields(
                     important_msgs, cmd.arm_command, ["turn_on", "turn_off", "speed_limit", "torque_limit"]
                 )
+                
             elif cmd.HasField("hand_command"):
                 important_msgs = GRPCWebRTCBridge._process_important_fields(
                     important_msgs, cmd.hand_command, ["turn_on", "turn_off"]
                 )
+                
             elif cmd.HasField("neck_command"):
                 important_msgs = GRPCWebRTCBridge._process_important_fields(
                     important_msgs, cmd.neck_command, ["turn_on", "turn_off", "speed_limit", "torque_limit"]
                 )
+                
             elif cmd.HasField("mobile_base_command"):
                 important_msgs = GRPCWebRTCBridge._process_important_fields(
                     important_msgs, cmd.mobile_base_command, ["mobile_base_mode"]
-                )
+                )                
             else:
                 self.logger.warning(f"Important command not processed: {cmd}")
         return important_msgs
@@ -465,7 +481,7 @@ class GRPCWebRTCBridge:
         commands.ParseFromString(message.get_data())
 
         if not commands.commands:
-            self.logger.warning("No command or incorrect message received {message}")
+            self.logger.warning(f"No command or incorrect message received {message}")
             return
 
         self.counter_all_commands.inc(len(commands.commands))
@@ -480,24 +496,47 @@ class GRPCWebRTCBridge:
         commands_important = GRPCWebRTCBridge._create_important_commands(commands)
         ###############################
         dropped_msg = 0
+        # This just counts the number of commands
         important_msgs = self._process_important_commands(commands)
-        self.counter_important_commands.inc(important_msgs)
 
+        self.counter_important_commands.inc(important_msgs)
+        
+        dt = time.time() - self.t
+        self.t = time.time()
+        self.logger.info(f"dt {dt*1000:.0f}ms")
+        
         if not important_msgs:
-            for cmd in commands.commands:
+            for cmd in commands.commands:                
                 if cmd.HasField("arm_command"):
-                    dropped_msg += self._insert_or_drop(std_queue, cmd.arm_command.arm_cartesian_goal.id.name, cmd.arm_command)
+                    is_dropped = self._insert_or_drop(std_queue, cmd.arm_command.arm_cartesian_goal.id.name, cmd.arm_command)
+                    dropped_msg += is_dropped
+                    if is_dropped:
+                        self.consecutive_drops[cmd.arm_command.arm_cartesian_goal.id.name] +=1
+                    else :
+                        if self.consecutive_drops[cmd.arm_command.arm_cartesian_goal.id.name] > 0:
+                            self.logger.info(f"Consecutive drops for {cmd.arm_command.arm_cartesian_goal.id.name} : {self.consecutive_drops[cmd.arm_command.arm_cartesian_goal.id.name]}")
+                            self.consecutive_drops[cmd.arm_command.arm_cartesian_goal.id.name] = 0
+                    # self.logger.info(f"arm_command {cmd}")
+                    
                 elif cmd.HasField("hand_command"):
                     dropped_msg += self._insert_or_drop(std_queue, cmd.hand_command.hand_goal.id.name, cmd.hand_command)
+                    self.logger.info(f"hand_command {cmd}")
+                    
                 elif cmd.HasField("neck_command"):
                     dropped_msg += self._insert_or_drop(std_queue, "neck", cmd.neck_command)
+                    self.logger.info(f"neck_command {cmd}")
+                    
                 elif cmd.HasField("mobile_base_command"):
                     dropped_msg += self._insert_or_drop(std_queue, "mobile_base", cmd.mobile_base_command)
+                    self.logger.info(f"mobile_base_command {cmd}")
+                    
                 else:
                     self.logger.warning(f"Unknown command: {cmd}")
         else:
             important_queue.put(commands_important)
-            self.logger.debug(f"important: {commands_important}")
+            self.logger.debug(f"$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$\nimportant: {commands_important}\n$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$\n")
+
+        # self.logger.info(f"dropped_msg {dropped_msg}")
 
         self.counter_dropped_commands.inc(dropped_msg)
 
@@ -540,6 +579,7 @@ class GRPCWebRTCBridge:
         last_freq_counter: Dict[str, int],
         last_freq_update: Dict[str, float],
         thread_cancel: Event,
+        session_id: str,
     ) -> None:
         while not thread_cancel.is_set():
             try:
@@ -549,6 +589,7 @@ class GRPCWebRTCBridge:
                 time.sleep(0.001)
             except Exception as e:
                 self.logger.error(f"Error while handling {part_name} commands: {e}")
+                self.abort_session(session_id)
         self.logger.debug(f"Thread {part_name} closed")
 
     def handle_important_queue_routine(
