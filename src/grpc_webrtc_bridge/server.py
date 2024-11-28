@@ -159,6 +159,7 @@ class GRPCWebRTCBridge:
         }
 
         last_freq_counter = {"neck": 0, "r_arm": 0, "l_arm": 0, "r_hand": 0, "l_hand": 0, "mobile_base": 0}
+        self.last_drop_counter = {"neck": 0, "r_arm": 0, "l_arm": 0, "r_hand": 0, "l_hand": 0, "mobile_base": 0}
         last_freq_update = {
             "neck": time.time(),
             "r_arm": time.time(),
@@ -434,6 +435,8 @@ class GRPCWebRTCBridge:
             elem = std_queue[queue_name]
             dropped = bool(elem)  # True means len(element) > 0
             elem.append(command)  # drop current element if any (maxlen=1)
+            if dropped:
+                self.last_drop_counter[queue_name] += 1
         except KeyError:
             self.logger.warning(f"Dropping invalid command : {queue_name}")
         return dropped
@@ -488,11 +491,11 @@ class GRPCWebRTCBridge:
                 if cmd.HasField("arm_command"):
                     dropped_msg += self._insert_or_drop(std_queue, cmd.arm_command.arm_cartesian_goal.id.name, cmd.arm_command)
                 elif cmd.HasField("hand_command"):
-                    dropped_msg += self._insert_or_drop(std_queue, cmd.hand_command.hand_goal.id.name, cmd.hand_command)
+                    dropped_msg = self._insert_or_drop(std_queue, cmd.hand_command.hand_goal.id.name, cmd.hand_command)
                 elif cmd.HasField("neck_command"):
-                    dropped_msg += self._insert_or_drop(std_queue, "neck", cmd.neck_command)
+                    dropped_msg = self._insert_or_drop(std_queue, "neck", cmd.neck_command)
                 elif cmd.HasField("mobile_base_command"):
-                    dropped_msg += self._insert_or_drop(std_queue, "mobile_base", cmd.mobile_base_command)
+                    dropped_msg = self._insert_or_drop(std_queue, "mobile_base", cmd.mobile_base_command)
                 else:
                     self.logger.warning(f"Unknown command: {cmd}")
         else:
@@ -524,10 +527,11 @@ class GRPCWebRTCBridge:
         now = time.time()
         if now - last_freq_update[part_name] > 1:
             current_freq_rate = int(last_freq_counter[part_name] / (now - last_freq_update[part_name]))
-
-            self.logger.info(f"Freq {part_name} {current_freq_rate} Hz")
+            current_drop_rate = int(self.last_drop_counter[part_name] / (now - last_freq_update[part_name]))
+            self.logger.info(f"Freq {part_name} {current_freq_rate} Hz\tDropped {current_drop_rate} Hz")
 
             last_freq_counter[part_name] = 0
+            self.last_drop_counter[part_name] = 0
             last_freq_update[part_name] = now
 
     ####################
@@ -544,7 +548,14 @@ class GRPCWebRTCBridge:
         while not thread_cancel.is_set():
             try:
                 msg = std_queue.pop()
-                self.msg_handling(msg, part_name, part_handler, self.sum_part[part_name], last_freq_counter, last_freq_update)
+                self.msg_handling(
+                    msg,
+                    part_name,
+                    part_handler,
+                    self.sum_part[part_name],
+                    last_freq_counter,
+                    last_freq_update,
+                )
             except IndexError:
                 time.sleep(0.001)
             except Exception as e:
