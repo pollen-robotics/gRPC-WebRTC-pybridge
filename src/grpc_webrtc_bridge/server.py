@@ -182,6 +182,7 @@ class GRPCWebRTCBridge:
                     last_freq_counter,
                     last_freq_update,
                     thread_cancel,
+                    session.session_id,
                 ),
                 daemon=True,
             ).start()
@@ -236,6 +237,9 @@ class GRPCWebRTCBridge:
         self._thread_bus_calls.join()
         await self.producer.close()
 
+    def abort_session(self, session_id: str) -> None:
+        asyncio.run_coroutine_threadsafe(self.producer.close_session(session_id), self.producer._asyncloop)
+
     # Handle service request
     async def handle_service_request(
         self,
@@ -249,7 +253,13 @@ class GRPCWebRTCBridge:
         self.logger.debug(f"Received service request message: {request}")
 
         if request.HasField("get_reachy"):
-            resp = await self.handle_get_reachy_request(grpc_client)
+            try:
+                resp = await self.handle_get_reachy_request(grpc_client)
+            except Exception as e:
+                self.logger.error(f"Error while handling get_reachy request: {e}. Aborting session")
+                await grpc_client.close()
+                self.abort_session(session.session_id)
+
             byte_data = resp.SerializeToString()
             gbyte_data = GLib.Bytes.new(byte_data)
             data_channel.send_data(gbyte_data)
@@ -544,6 +554,7 @@ class GRPCWebRTCBridge:
         last_freq_counter: Dict[str, int],
         last_freq_update: Dict[str, float],
         thread_cancel: Event,
+        session_id: str,
     ) -> None:
         while not thread_cancel.is_set():
             try:
@@ -560,6 +571,7 @@ class GRPCWebRTCBridge:
                 time.sleep(0.001)
             except Exception as e:
                 self.logger.error(f"Error while handling {part_name} commands: {e}")
+                self.abort_session(session_id)
         self.logger.debug(f"Thread {part_name} closed")
 
     def handle_important_queue_routine(
