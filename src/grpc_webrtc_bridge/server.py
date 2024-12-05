@@ -314,6 +314,9 @@ class GRPCWebRTCBridge:
     def on_error_audit_channel(self, channel: GstWebRTC.WebRTCDataChannel, error: GLib.Error) -> None:
         self.logger.error(f"Error on audit status channel: {error.message}")
 
+    def on_open_commands_channel(self, channel: GstWebRTC.WebRTCDataChannel) -> None:
+        self.logger.debug("channel commands opened")
+
     def on_error_commands_channel(self, channel: GstWebRTC.WebRTCDataChannel, error: GLib.Error) -> None:
         self.logger.error(f"Error on commands channel: {error.message}")
 
@@ -361,6 +364,45 @@ class GRPCWebRTCBridge:
             self.logger.error(f"Error while streaming audit state: {e}")
         self.logger.debug("leaving streaming audit state")
 
+    def prepare_channels(
+        self,
+        webrtcbin: Gst.Element,
+        channel: GstWebRTC.WebRTCDataChannel,
+        is_local: bool,
+        grpc_client: GRPCClient,
+        request: Connect,
+        important_queue: Queue[AnyCommands],
+        std_queue: Dict[str, deque[AnyCommand]],
+    ) -> None:
+        label = channel.get_property("label")
+        self.logger.debug(f"prepare data channel {label}")
+
+        if label.startswith("reachy_state"):
+            channel.connect("on-open", self.on_open_state_channel)
+            channel.connect("on-close", self.on_close_state_channel)
+            channel.connect("on-error", self.on_error_state_channel)
+            asyncio.run_coroutine_threadsafe(self._send_joint_state(channel, request, grpc_client), self.producer._asyncloop)
+
+        elif label.startswith("reachy_audit"):
+            channel.connect("on-open", self.on_open_audit_channel)
+            channel.connect("on-close", self.on_close_audit_channel)
+            channel.connect("on-error", self.on_error_audit_channel)
+            asyncio.run_coroutine_threadsafe(
+                self._send_joint_audit_status(channel, request, grpc_client),
+                self.producer._asyncloop,
+            )
+
+        elif label.startswith("reachy_command"):
+            channel.connect(
+                "on-message-data",
+                self.on_reachy_command_datachannel_message,
+                grpc_client,
+                important_queue,
+                std_queue,
+            )
+            channel.connect("on-open", self.on_open_commands_channel)
+            channel.connect("on-error", self.on_error_commands_channel)
+
     async def handle_connect_request(
         self,
         request: Connect,
@@ -370,6 +412,7 @@ class GRPCWebRTCBridge:
         std_queue: Dict[str, deque[AnyCommand]],
     ) -> ServiceResponse:
         # Create state data channel and start sending state
+        session.pc.connect("prepare-data-channel", self.prepare_channels, grpc_client, request, important_queue, std_queue)
 
         if request.update_frequency >= 1000:
             max_packet_lifetime = 1
@@ -379,44 +422,16 @@ class GRPCWebRTCBridge:
         channel_options = Gst.Structure.new_empty("application/x-data-channel")
         channel_options.set_value("max-packet-lifetime", max_packet_lifetime)
 
-        data_channel_state = session.pc.emit("create-data-channel", f"reachy_state_{request.reachy_id.id}", channel_options)
-        if data_channel_state:
-            data_channel_state.connect("on-open", self.on_open_state_channel)
-            data_channel_state.connect("on-close", self.on_close_state_channel)
-            data_channel_state.connect("on-error", self.on_error_state_channel)
-            asyncio.run_coroutine_threadsafe(
-                self._send_joint_state(data_channel_state, request, grpc_client), self.producer._asyncloop
-            )
-        else:
+        if not session.pc.emit("create-data-channel", f"reachy_state_{request.reachy_id.id}", channel_options):
             self.logger.error("Failed to create data channel state")
 
-        audit_channel_state = session.pc.emit("create-data-channel", f"reachy_audit_{request.reachy_id.id}", channel_options)
-        if audit_channel_state:
-            audit_channel_state.connect("on-open", self.on_open_audit_channel)
-            audit_channel_state.connect("on-close", self.on_close_audit_channel)
-            audit_channel_state.connect("on-error", self.on_error_audit_channel)
-            asyncio.run_coroutine_threadsafe(
-                self._send_joint_audit_status(audit_channel_state, request, grpc_client),
-                self.producer._asyncloop,
-            )
-        else:
+        if not session.pc.emit("create-data-channel", f"reachy_audit_{request.reachy_id.id}", channel_options):
             self.logger.error("Failed to create data channel state")
 
         channel_options = Gst.Structure.new_empty("application/x-data-channel")
         channel_options.set_value("priority", GstWebRTC.WebRTCPriorityType.HIGH)
-        reachy_command_datachannel = session.pc.emit(
-            "create-data-channel", f"reachy_command_{request.reachy_id.id}", channel_options
-        )
-        if reachy_command_datachannel:
-            reachy_command_datachannel.connect(
-                "on-message-data",
-                self.on_reachy_command_datachannel_message,
-                grpc_client,
-                important_queue,
-                std_queue,
-            )
-            reachy_command_datachannel.connect("on-error", self.on_error_commands_channel)
-        else:
+
+        if not session.pc.emit("create-data-channel", f"reachy_command_{request.reachy_id.id}", channel_options):
             self.logger.error("Failed to create data channel command")
 
         return ServiceResponse()
