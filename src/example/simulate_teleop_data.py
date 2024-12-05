@@ -163,21 +163,23 @@ class TeleopApp:
         gbyte_data = GLib.Bytes.new(byte_data)
         channel.send_data(gbyte_data)
 
-    def ensure_send_command(self, channel: GstWebRTC.WebRTCDataChannel, frequency: float = 100, bench_mode=False) -> None:
+    def ensure_send_command(
+        self, channel: GstWebRTC.WebRTCDataChannel, frequency: float = 100, bench_mode: bool = False
+    ) -> None:
         async def send_command() -> None:
             radius = 0.2  # Circle radius
             fixed_x = 0.4  # Fixed x-coordinate
             center_y, center_z = 0, 0.1  # Center of the circle in y-z plane
             num_steps = 200  # Number of steps to complete the circle
             # frequency = 100  # Update frequency in Hz
-            adaptative_freq  = frequency
+            adaptative_freq = frequency
             self._logger.info(f"Running at {frequency} Hz")
             self._logger.info(f"Bench mode {bench_mode}")
             step = 0  # Current step
             circle_period = 3
             t0 = time.time()
             while True:
-                loop_start_time = time.time()
+                # loop_start_time = time.time()
                 angle = 2 * np.pi * (step / num_steps)
                 angle = 2 * np.pi * (time.time() - t0) / circle_period
                 self._logger.debug(f"command angle {angle}")
@@ -219,11 +221,11 @@ class TeleopApp:
                 # await asyncio.sleep(1 / frequency)
                 await asyncio.sleep(1 / adaptative_freq)
                 # self._logger.info(f"slept {time.time()-sleep_init} vs {1 / frequency} ")
-                # INFO:__main__:slept 0.004151105880737305 vs 0.0033333333333333335 
-                # INFO:__main__:slept 0.002131223678588867 vs 0.002 
+                # INFO:__main__:slept 0.004151105880737305 vs 0.0033333333333333335
+                # INFO:__main__:slept 0.002131223678588867 vs 0.002
                 if bench_mode:
                     adaptative_freq += 0.1
-                    if adaptative_freq >=1500:
+                    if adaptative_freq >= 1500:
                         exit(0)
 
         self.turn_on_arms(channel)

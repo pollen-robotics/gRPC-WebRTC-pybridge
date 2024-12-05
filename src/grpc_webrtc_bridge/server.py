@@ -55,7 +55,7 @@ class GRPCWebRTCBridge:
         )
         self.tracer = rm.tracer(NODE_NAME, grpc_type="client")
         self.t = time.time()
-    
+
         self.counter_all_commands = prc.Counter("webrtcbridge_all_commands", "Amount of commands received")
         self.counter_important_commands = prc.Counter(
             "webrtcbridge_important_commands", "Amount of important commands received"
@@ -469,9 +469,10 @@ class GRPCWebRTCBridge:
     def _insert_or_drop(self, std_queue: Dict[str, deque[AnyCommand]], queue_name: str, command: AnyCommand) -> bool:
         dropped = True
         try:
-            if time.time() - self.last_sent[queue_name] < self.min_dt_allowed : # too soon to respect required frequency
+            if time.time() - self.last_sent[queue_name] < self.min_dt_allowed:  # too soon to respect required frequency
                 self.last_adaptative_freq_drop_counter[queue_name] += 1
-                # self.logger.info(f" now {time.time()}\t last_sent {self.last_sent[queue_name]} \t min_dt {self.min_dt_allowed}")
+                # self.logger.info(f" now {time.time()}\t last_sent {self.last_sent[queue_name]} \
+                #  \t min_dt {self.min_dt_allowed}")
             else:
                 elem = std_queue[queue_name]
                 dropped = bool(elem)  # True means len(element) > 0
@@ -512,7 +513,6 @@ class GRPCWebRTCBridge:
         if not commands.commands:
             self.logger.warning("No command or incorrect message received {message}")
             return
-
 
         dt = time.time() - self.t
         self.t = time.time()
@@ -576,8 +576,13 @@ class GRPCWebRTCBridge:
         if now - last_freq_update[part_name] > 1:
             current_freq_rate = int(last_freq_counter[part_name] / (now - last_freq_update[part_name]))
             current_drop_rate = int(self.last_drop_counter[part_name] / (now - last_freq_update[part_name]))
-            current_adaptative_freq_drop_rate = int(self.last_adaptative_freq_drop_counter[part_name] / (now - last_freq_update[part_name]))
-            self.logger.info(f"Freq {part_name} {current_freq_rate} Hz\tDropped {current_drop_rate} Hz\tAdaptFreqDrop {current_adaptative_freq_drop_rate}Hz")
+            current_adaptative_freq_drop_rate = int(
+                self.last_adaptative_freq_drop_counter[part_name] / (now - last_freq_update[part_name])
+            )
+            self.logger.info(
+                f"Freq {part_name} {current_freq_rate} Hz\tDropped {current_drop_rate} Hz \
+                \tAdaptFreqDrop {current_adaptative_freq_drop_rate}Hz"
+            )
             last_freq_counter[part_name] = 0
             self.last_drop_counter[part_name] = 0
             self.last_adaptative_freq_drop_counter[part_name] = 0
