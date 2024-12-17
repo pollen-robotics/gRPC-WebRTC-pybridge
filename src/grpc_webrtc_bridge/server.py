@@ -70,6 +70,7 @@ class GRPCWebRTCBridge:
             "r_hand": prc.Summary("webrtcbridge_commands_time_r_hand", "Time spent during r_hand commands"),
             "l_hand": prc.Summary("webrtcbridge_commands_time_l_hand", "Time spent during l_hand commands"),
             "mobile_base": prc.Summary("webrtcbridge_commands_time_mobile_base", "Time spent during mobile_base commands"),
+            "antennas": prc.Summary("webrtcbridge_commands_time_antennas", "Time spent during antennas commands"),
         }
 
         self.important_queue: Queue[AnyCommands] = Queue()
@@ -80,6 +81,7 @@ class GRPCWebRTCBridge:
             "r_hand": deque(maxlen=1),
             "l_hand": deque(maxlen=1),
             "mobile_base": deque(maxlen=1),
+            "antennas": deque(maxlen=1),
         }
 
         self.last_sent = {
@@ -89,6 +91,7 @@ class GRPCWebRTCBridge:
             "r_hand": time.time(),
             "l_hand": time.time(),
             "mobile_base": time.time(),
+            "antennas": time.time(),
         }
         self.min_dt_allowed = 1.0 / 150.0
 
@@ -132,6 +135,7 @@ class GRPCWebRTCBridge:
                 "r_hand": deque(maxlen=1),
                 "l_hand": deque(maxlen=1),
                 "mobile_base": deque(maxlen=1),
+                "antennas": deque(maxlen=1),
             }
 
             self.configure_grpc_client_threads(grpc_client, session, important_queue, std_queue)
@@ -167,11 +171,12 @@ class GRPCWebRTCBridge:
             "r_hand": grpc_client.handle_hand_command,
             "l_hand": grpc_client.handle_hand_command,
             "mobile_base": grpc_client.handle_mobile_base_command,
+            "antennas": grpc_client.handle_antennas_command,
         }
 
-        last_freq_counter = {"neck": 0, "r_arm": 0, "l_arm": 0, "r_hand": 0, "l_hand": 0, "mobile_base": 0}
-        self.last_drop_counter = {"neck": 0, "r_arm": 0, "l_arm": 0, "r_hand": 0, "l_hand": 0, "mobile_base": 0}
-        self.last_adaptative_freq_drop_counter = {"neck": 0, "r_arm": 0, "l_arm": 0, "r_hand": 0, "l_hand": 0, "mobile_base": 0}
+        last_freq_counter = {"neck": 0, "r_arm": 0, "l_arm": 0, "r_hand": 0, "l_hand": 0, "mobile_base": 0, "antennas": 0}
+        self.last_drop_counter = {"neck": 0, "r_arm": 0, "l_arm": 0, "r_hand": 0, "l_hand": 0, "mobile_base": 0, "antennas": 0}
+        self.last_adaptative_freq_drop_counter = {"neck": 0, "r_arm": 0, "l_arm": 0, "r_hand": 0, "l_hand": 0, "mobile_base": 0, "antennas": 0}
         last_freq_update = {
             "neck": time.time(),
             "r_arm": time.time(),
@@ -179,6 +184,7 @@ class GRPCWebRTCBridge:
             "r_hand": time.time(),
             "l_hand": time.time(),
             "mobile_base": time.time(),
+            "antennas": time.time(),
         }
 
         thread_cancel = Event()
@@ -231,7 +237,7 @@ class GRPCWebRTCBridge:
         important_queue: Queue[AnyCommands],
         std_queue: Dict[str, deque[AnyCommand]],
     ) -> None:
-        self.logger.debug(f"Message from DataChannel: {message}")
+        # self.logger.debug(f"Message from DataChannel: {message}")
         request = ServiceRequest()
         request.ParseFromString(message.get_data())
 
@@ -262,7 +268,7 @@ class GRPCWebRTCBridge:
         important_queue: Queue[AnyCommands],
         std_queue: Dict[str, deque[AnyCommand]],
     ) -> None:
-        self.logger.debug(f"Received service request message: {request}")
+        # self.logger.debug(f"Received service request message: {request}")
 
         if request.HasField("get_reachy"):
             try:
@@ -283,7 +289,7 @@ class GRPCWebRTCBridge:
             resp = await self.handle_disconnect_request()
 
     async def handle_get_reachy_request(self, grpc_client: GRPCClient) -> ServiceResponse:
-        self.logger.debug("Ask for reachy state")
+        # self.logger.debug("Ask for reachy state")
         reachy = await grpc_client.get_reachy()
         resp = ServiceResponse(
             connection_status=ConnectionStatus(
@@ -462,6 +468,8 @@ class GRPCWebRTCBridge:
                 important_msgs = GRPCWebRTCBridge._process_important_fields(
                     important_msgs, cmd.mobile_base_command, ["mobile_base_mode"]
                 )
+            elif cmd.HasField("antennas_command"):
+                pass
             else:
                 self.logger.warning(f"Important command not processed: {cmd}")
         return important_msgs
@@ -544,11 +552,13 @@ class GRPCWebRTCBridge:
                     dropped_msg = self._insert_or_drop(std_queue, "neck", cmd.neck_command)
                 elif cmd.HasField("mobile_base_command"):
                     dropped_msg = self._insert_or_drop(std_queue, "mobile_base", cmd.mobile_base_command)
+                elif cmd.HasField("antennas_command"):
+                    dropped_msg = self._insert_or_drop(std_queue, "antennas", cmd.antennas_command)
                 else:
                     self.logger.warning(f"Unknown command: {cmd}")
         else:
             important_queue.put(commands_important)
-            self.logger.debug(f"important: {commands_important}")
+            # self.logger.debug(f"important: {commands_important}")
 
         self.counter_dropped_commands.inc(dropped_msg)
 
@@ -630,7 +640,7 @@ class GRPCWebRTCBridge:
                 pass  # required to properly close the thread
             except Exception as e:
                 self.logger.error(f"Error while handling important commands: {e}")
-        self.logger.debug("Thread important queues closed")
+        # self.logger.debug("Thread important queues closed")
 
     def bus_message_cb(self, bus: Gst.Bus, msg: Gst.Message, loop) -> bool:  # type: ignore[no-untyped-def]
         t = msg.type
