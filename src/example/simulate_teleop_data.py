@@ -119,7 +119,7 @@ class TeleopApp:
     def get_arm_cartesian_goal(self, x: float, y: float, z: float, partid: int = 1) -> ArmCartesianGoal:
         goal = np.array(
             [
-                [0, 0, 1, x],
+                [0, 0, -1, x],
                 [0, 1, 0, y],
                 [1, 0, 0, z],
                 [0, 0, 0, 1],
@@ -134,7 +134,7 @@ class TeleopApp:
     def make_arm_cartesian_goal(self, x: float, y: float, z: float, partid: int = 1) -> ArmCartesianGoal:
         goal = np.array(
             [
-                [0, 0, 1, x],
+                [0, 0, -1, x],
                 [0, 1, 0, y],
                 [1, 0, 0, z],
                 [0, 0, 0, 1],
@@ -167,9 +167,9 @@ class TeleopApp:
         self, channel: GstWebRTC.WebRTCDataChannel, frequency: float = 100, bench_mode: bool = False
     ) -> None:
         async def send_command() -> None:
-            radius = 0.2  # Circle radius
+            radius = 0.1  # Circle radius
             fixed_x = 0.4  # Fixed x-coordinate
-            center_y, center_z = 0, 0.1  # Center of the circle in y-z plane
+            center_y, center_z = 0, -0.1  # Center of the circle in y-z plane
             num_steps = 200  # Number of steps to complete the circle
             # frequency = 100  # Update frequency in Hz
             adaptative_freq = frequency
