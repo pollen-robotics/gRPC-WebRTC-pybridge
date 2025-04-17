@@ -5,8 +5,12 @@ from typing import Any, AsyncGenerator
 import grpc
 import reachy2_monitoring as rm
 from google.protobuf.empty_pb2 import Empty
+from google.protobuf.wrappers_pb2 import BoolValue
 from reachy2_sdk_api import (
     arm_pb2_grpc,
+    component_pb2,
+    dynamixel_motor_pb2,
+    dynamixel_motor_pb2_grpc,
     hand_pb2_grpc,
     head_pb2_grpc,
     mobile_base_mobility_pb2_grpc,
@@ -48,6 +52,7 @@ class GRPCClient:
         self.head_stub = head_pb2_grpc.HeadServiceStub(self.synchro_channel)
         self.mb_utility_stub = mobile_base_utility_pb2_grpc.MobileBaseUtilityServiceStub(self.synchro_channel)
         self.mb_mobility_stub = mobile_base_mobility_pb2_grpc.MobileBaseMobilityServiceStub(self.synchro_channel)
+        self.dxl_motor_stub = dynamixel_motor_pb2_grpc.DynamixelMotorServiceStub(self.synchro_channel)
 
         self._event_streams = asyncio.Event()
 
@@ -127,6 +132,8 @@ class GRPCClient:
                     self.handle_neck_command(cmd.neck_command)
                 elif cmd.HasField("mobile_base_command"):
                     self.handle_mobile_base_command(cmd.mobile_base_command)
+                elif cmd.HasField("antennas_command"):
+                    self.handle_antennas_command(cmd.antennas_command)
                 else:
                     self.logger.warning(f"Unknown command : {cmd}")
 
@@ -172,9 +179,35 @@ class GRPCClient:
             elif cmd.HasField("turn_on"):
                 with rm.PollenSpan(tracer=self.tracer, trace_name="neck_turn_on"):
                     self.head_stub.TurnOn(cmd.turn_on)
+                command_antennas = dynamixel_motor_pb2.DynamixelMotorsCommand(
+                    cmd=[
+                        dynamixel_motor_pb2.DynamixelMotorCommand(
+                            id=component_pb2.ComponentId(name="antenna_right"),
+                            compliant=BoolValue(value=False),
+                        ),
+                        dynamixel_motor_pb2.DynamixelMotorCommand(
+                            id=component_pb2.ComponentId(name="antenna_left"),
+                            compliant=BoolValue(value=False),
+                        ),
+                    ]
+                )
+                self.handle_antennas_command(command_antennas)
             elif cmd.HasField("turn_off"):
                 with rm.PollenSpan(tracer=self.tracer, trace_name="neck_turn_off"):
                     self.head_stub.TurnOff(cmd.turn_off)
+                command_antennas = dynamixel_motor_pb2.DynamixelMotorsCommand(
+                    cmd=[
+                        dynamixel_motor_pb2.DynamixelMotorCommand(
+                            id=component_pb2.ComponentId(name="antenna_right"),
+                            compliant=BoolValue(value=True),
+                        ),
+                        dynamixel_motor_pb2.DynamixelMotorCommand(
+                            id=component_pb2.ComponentId(name="antenna_left"),
+                            compliant=BoolValue(value=True),
+                        ),
+                    ]
+                )
+                self.handle_antennas_command(command_antennas)
             elif cmd.HasField("speed_limit"):
                 with rm.PollenSpan(tracer=self.tracer, trace_name="neck_speed_limit"):
                     self.head_stub.SetSpeedLimit(cmd.speed_limit)
@@ -194,3 +227,8 @@ class GRPCClient:
                     self.mb_utility_stub.SetZuuuMode(cmd.mobile_base_mode)
             else:
                 self.logger.warning(f"Unknown mobile base command : {cmd}")
+
+    def handle_antennas_command(self, cmd: dynamixel_motor_pb2.DynamixelMotorsCommand) -> None:
+        self.logger.error(f"ANTENNAS COMMAND : {cmd}")
+        with rm.PollenSpan(tracer=self.tracer, trace_name="handle_antennas_command"):
+            self.dxl_motor_stub.SendCommand(cmd)
