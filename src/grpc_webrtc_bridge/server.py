@@ -176,7 +176,15 @@ class GRPCWebRTCBridge:
 
         last_freq_counter = {"neck": 0, "r_arm": 0, "l_arm": 0, "r_hand": 0, "l_hand": 0, "mobile_base": 0, "antennas": 0}
         self.last_drop_counter = {"neck": 0, "r_arm": 0, "l_arm": 0, "r_hand": 0, "l_hand": 0, "mobile_base": 0, "antennas": 0}
-        self.last_adaptative_freq_drop_counter = {"neck": 0, "r_arm": 0, "l_arm": 0, "r_hand": 0, "l_hand": 0, "mobile_base": 0, "antennas": 0}
+        self.last_adaptative_freq_drop_counter = {
+            "neck": 0,
+            "r_arm": 0,
+            "l_arm": 0,
+            "r_hand": 0,
+            "l_hand": 0,
+            "mobile_base": 0,
+            "antennas": 0,
+        }
         last_freq_update = {
             "neck": time.time(),
             "r_arm": time.time(),
